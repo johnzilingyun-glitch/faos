@@ -28,10 +28,16 @@ class TaskRuntime:
         
         from faos.services.skill.service import SkillService
         from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill
+        from faos.services.provider.service import ProviderService
+        from faos.services.provider.impl import MockQuoteProvider, MockNewsProvider
+        
+        self.provider_service = ProviderService()
+        self.provider_service.register_provider(MockQuoteProvider())
+        self.provider_service.register_provider(MockNewsProvider())
         
         self.skill_service = SkillService()
-        self.skill_service.register_skill(FetchDataSkill())
-        self.skill_service.register_skill(FetchNewsSkill())
+        self.skill_service.register_skill(FetchDataSkill(provider_service=self.provider_service))
+        self.skill_service.register_skill(FetchNewsSkill(provider_service=self.provider_service))
         self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
         self.skill_service.register_skill(GenerateReportSkill())
         

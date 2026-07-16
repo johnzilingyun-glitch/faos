@@ -4,14 +4,20 @@ from faos.core.context import ExecutionContext
 from faos.services.skill.service import SkillService
 from faos.services.skill.models import SkillRequest
 from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill
+from faos.services.provider.service import ProviderService
+from faos.services.provider.impl import MockQuoteProvider, MockNewsProvider
 
 @pytest.mark.asyncio
 async def test_skill_service_registration_and_execution():
     service = SkillService()
     
+    provider_service = ProviderService()
+    provider_service.register_provider(MockQuoteProvider())
+    provider_service.register_provider(MockNewsProvider())
+    
     # Register skills
-    service.register_skill(FetchDataSkill())
-    service.register_skill(FetchNewsSkill())
+    service.register_skill(FetchDataSkill(provider_service=provider_service))
+    service.register_skill(FetchNewsSkill(provider_service=provider_service))
     
     # Verify retrieval
     assert service.get_skill("FetchData") is not None

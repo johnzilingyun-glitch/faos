@@ -7,6 +7,8 @@ from faos.execution.engine import ExecutionEngine
 from faos.services.reasoning.service import ReasoningService
 from faos.services.skill.service import SkillService
 from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill
+from faos.services.provider.service import ProviderService
+from faos.services.provider.impl import MockQuoteProvider, MockNewsProvider
 
 @pytest.mark.asyncio
 async def test_engine_dag_execution():
@@ -19,9 +21,14 @@ async def test_engine_dag_execution():
     contexts[task_id] = ExecutionContext(task_id=task_id)
     
     reasoning_service = ReasoningService()
+    
+    provider_service = ProviderService()
+    provider_service.register_provider(MockQuoteProvider())
+    provider_service.register_provider(MockNewsProvider())
+    
     skill_service = SkillService()
-    skill_service.register_skill(FetchDataSkill())
-    skill_service.register_skill(FetchNewsSkill())
+    skill_service.register_skill(FetchDataSkill(provider_service))
+    skill_service.register_skill(FetchNewsSkill(provider_service))
     skill_service.register_skill(AnalyzeSkill(reasoning_service))
     skill_service.register_skill(GenerateReportSkill())
 

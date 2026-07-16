@@ -3,8 +3,13 @@ from faos.services.skill.base import BaseSkill
 from faos.services.skill.models import SkillRequest, SkillResponse, SkillManifest
 from faos.services.reasoning.service import ReasoningService
 from faos.services.reasoning.models import ReasoningRequest
+from faos.services.provider.service import ProviderService
+from faos.services.provider.models import ProviderRequest
 
 class FetchDataSkill(BaseSkill):
+    def __init__(self, provider_service: ProviderService):
+        self.provider_service = provider_service
+        
     @property
     def manifest(self) -> SkillManifest:
         return SkillManifest(
@@ -15,16 +20,23 @@ class FetchDataSkill(BaseSkill):
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
-        await asyncio.sleep(0.5)
         symbol = request.parameters.get("symbol", "AAPL")
-        output_data = {"symbol": symbol, "price": 175.5, "volume": 50000000}
+        
+        provider_req = ProviderRequest(entity=symbol)
+        provider_resp = await self.provider_service.fetch_data("mock_quote", provider_req)
+        
+        if provider_resp.status == "failed":
+            return SkillResponse(status="failed", error=provider_resp.error)
         
         # Skill writes to ExecutionContext as per architecture
-        request.context.add_provider_output("quote", output_data)
+        request.context.add_provider_output("quote", provider_resp.data)
         return SkillResponse(status="success", output={"data_type": "quote"})
 
 
 class FetchNewsSkill(BaseSkill):
+    def __init__(self, provider_service: ProviderService):
+        self.provider_service = provider_service
+        
     @property
     def manifest(self) -> SkillManifest:
         return SkillManifest(
@@ -35,14 +47,15 @@ class FetchNewsSkill(BaseSkill):
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
-        await asyncio.sleep(0.5)
         symbol = request.parameters.get("symbol", "AAPL")
-        news_data = [
-            {"title": f"New product launch for {symbol}", "sentiment": 0.8},
-            {"title": f"{symbol} stock reaches new high", "sentiment": 0.7}
-        ]
         
-        request.context.add_provider_output("news", news_data)
+        provider_req = ProviderRequest(entity=symbol)
+        provider_resp = await self.provider_service.fetch_data("mock_news", provider_req)
+        
+        if provider_resp.status == "failed":
+            return SkillResponse(status="failed", error=provider_resp.error)
+            
+        request.context.add_provider_output("news", provider_resp.data)
         return SkillResponse(status="success", output={"data_type": "news"})
 
 
