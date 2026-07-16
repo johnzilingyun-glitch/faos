@@ -39,3 +39,21 @@ def get_analyze_stock_workflow() -> WorkflowDefinition:
             )
         ]
     )
+
+def get_news_summary_workflow() -> WorkflowDefinition:
+    """
+    Workflow for purely summarizing recent news without heavy financial analysis.
+    """
+    return WorkflowDefinition(
+        id="NewsSummaryWorkflow",
+        name="News Summary Workflow",
+        description="Fetch news for a symbol and generate a summary report. Good for 'summarize news' queries.",
+        nodes=[
+            WorkflowNodeDef(id="node1", capability="FetchNews"),
+            WorkflowNodeDef(
+                id="node2",
+                capability="GenerateReport",
+                dependencies=["node1"]
+            )
+        ]
+    )

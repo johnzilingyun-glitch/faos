@@ -26,6 +26,9 @@ class TaskRuntime:
         from faos.services.observability.service import ObservabilityService
         self.observability = ObservabilityService(event_bus=self.event_bus)
 
+        from faos.services.security.service import SecurityGovernanceService
+        self.security_governance = SecurityGovernanceService()
+
         
         from faos.services.plugin.service import PluginService
         self.plugin_service = PluginService()
@@ -114,10 +117,11 @@ class TaskRuntime:
         self.skill_service.register_skill(GenerateReportSkill(report_service=self.report_service))
         
         from faos.services.workflow.service import WorkflowService
-        from faos.services.workflow.standard import get_analyze_stock_workflow
+        from faos.services.workflow.standard import get_analyze_stock_workflow, get_news_summary_workflow
         
         self.workflow_service = WorkflowService()
         self.workflow_service.register_workflow(get_analyze_stock_workflow())
+        self.workflow_service.register_workflow(get_news_summary_workflow())
         
         from faos.services.capability.service import CapabilityService
         from faos.services.capability.models import CapabilityManifest
@@ -135,7 +139,8 @@ class TaskRuntime:
         self.planner = PlannerPipeline(
             self.event_bus, 
             workflow_service=self.workflow_service,
-            capability_service=self.capability_service
+            capability_service=self.capability_service,
+            reasoning_service=self.reasoning
         )
         self.engine = ExecutionEngine(self.event_bus, self.contexts, skill_service=self.skill_service)
         
