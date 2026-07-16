@@ -23,6 +23,9 @@ class TaskRuntime:
         self.active_tasks: Dict[str, Task] = {}
         self.contexts: Dict[str, ExecutionContext] = {}
         
+        import os
+        faos_env = os.environ.get("FAOS_ENV", "mock").lower()
+        
         from faos.services.reasoning.service import ReasoningService
         self.reasoning = ReasoningService()
         
@@ -33,8 +36,16 @@ class TaskRuntime:
         from faos.services.decision.service import DecisionService
         
         self.provider_service = ProviderService()
-        self.provider_service.register_provider(MockQuoteProvider())
-        self.provider_service.register_provider(MockNewsProvider())
+        
+        if faos_env == "real":
+            from faos.services.provider.yfinance_impl import YFinanceQuoteProvider, YFinanceNewsProvider
+            self.provider_service.register_provider(YFinanceQuoteProvider())
+            self.provider_service.register_provider(YFinanceNewsProvider())
+            logger.info("TaskRuntime using REAL providers (YFinance)")
+        else:
+            self.provider_service.register_provider(MockQuoteProvider())
+            self.provider_service.register_provider(MockNewsProvider())
+            logger.info("TaskRuntime using MOCK providers")
         
         self.decision_service = DecisionService()
         

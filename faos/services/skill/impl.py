@@ -25,7 +25,7 @@ class FetchDataSkill(BaseSkill):
         symbol = request.parameters.get("symbol", "AAPL")
         
         provider_req = ProviderRequest(entity=symbol)
-        provider_resp = await self.provider_service.fetch_data("mock_quote", provider_req)
+        provider_resp = await self.provider_service.fetch_by_category("market", provider_req)
         
         if provider_resp.status == "failed":
             return SkillResponse(status="failed", error=provider_resp.error)
@@ -52,7 +52,7 @@ class FetchNewsSkill(BaseSkill):
         symbol = request.parameters.get("symbol", "AAPL")
         
         provider_req = ProviderRequest(entity=symbol)
-        provider_resp = await self.provider_service.fetch_data("mock_news", provider_req)
+        provider_resp = await self.provider_service.fetch_by_category("news", provider_req)
         
         if provider_resp.status == "failed":
             return SkillResponse(status="failed", error=provider_resp.error)

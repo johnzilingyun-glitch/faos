@@ -34,3 +34,18 @@ class ProviderService:
         except Exception as e:
             logger.error(f"Provider {provider_id} fetch failed: {e}")
             return ProviderResponse(status="failed", error=str(e))
+            
+    async def fetch_by_category(self, category: str, request: ProviderRequest) -> ProviderResponse:
+        # Simple routing: find first provider matching category
+        matched = None
+        for p in self.providers.values():
+            if p.manifest.category == category:
+                matched = p
+                break
+                
+        if not matched:
+            error_msg = f"No provider found for category: {category}"
+            logger.error(error_msg)
+            return ProviderResponse(status="failed", error=error_msg)
+            
+        return await self.fetch_data(matched.manifest.id, request)
