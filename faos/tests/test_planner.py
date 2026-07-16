@@ -6,6 +6,8 @@ from faos.execution.planner import PlannerPipeline
 
 from faos.services.workflow.service import WorkflowService
 from faos.services.workflow.standard import get_analyze_stock_workflow
+from faos.services.capability.service import CapabilityService
+from faos.services.capability.models import CapabilityManifest
 
 @pytest.mark.asyncio
 async def test_planner_pipeline_generates_plan():
@@ -14,8 +16,19 @@ async def test_planner_pipeline_generates_plan():
     
     workflow_service = WorkflowService()
     workflow_service.register_workflow(get_analyze_stock_workflow())
+    
+    capability_service = CapabilityService()
+    capability_service.register_capability(CapabilityManifest(id="cap.fetch_data", name="FetchData", inputs=["symbol"]))
+    capability_service.register_capability(CapabilityManifest(id="cap.fetch_news", name="FetchNews", inputs=["symbol"]))
+    capability_service.register_capability(CapabilityManifest(id="cap.analyze", name="Analyze", inputs=[]))
+    capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
+    capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
 
-    planner = PlannerPipeline(event_bus, workflow_service=workflow_service)
+    planner = PlannerPipeline(
+        event_bus, 
+        workflow_service=workflow_service,
+        capability_service=capability_service
+    )
     
     # We need a way to capture events published by the planner
     captured_events = []

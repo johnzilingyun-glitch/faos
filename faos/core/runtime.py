@@ -51,8 +51,22 @@ class TaskRuntime:
         self.workflow_service = WorkflowService()
         self.workflow_service.register_workflow(get_analyze_stock_workflow())
         
+        from faos.services.capability.service import CapabilityService
+        from faos.services.capability.models import CapabilityManifest
+        
+        self.capability_service = CapabilityService()
+        self.capability_service.register_capability(CapabilityManifest(id="cap.fetch_data", name="FetchData", inputs=["symbol"]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.fetch_news", name="FetchNews", inputs=["symbol"]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.analyze", name="Analyze", inputs=[]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
+        
         # Instantiate Planner and Execution Engine
-        self.planner = PlannerPipeline(self.event_bus, workflow_service=self.workflow_service)
+        self.planner = PlannerPipeline(
+            self.event_bus, 
+            workflow_service=self.workflow_service,
+            capability_service=self.capability_service
+        )
         self.engine = ExecutionEngine(self.event_bus, self.contexts, skill_service=self.skill_service)
         
         self._running = False

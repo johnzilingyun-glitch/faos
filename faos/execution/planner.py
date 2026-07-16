@@ -3,13 +3,15 @@ import re
 from faos.core.models import Event, ExecutionPlan, PlanNode
 from faos.core.event_bus import EventBus
 from faos.services.workflow.service import WorkflowService
+from faos.services.capability.service import CapabilityService
 
 logger = logging.getLogger(__name__)
 
 class PlannerPipeline:
-    def __init__(self, event_bus: EventBus, workflow_service: WorkflowService = None):
+    def __init__(self, event_bus: EventBus, workflow_service: WorkflowService = None, capability_service: CapabilityService = None):
         self.event_bus = event_bus
         self.workflow_service = workflow_service
+        self.capability_service = capability_service
         self.event_bus.subscribe("TaskSubmitted", self._handle_task_submitted)
         
     async def _handle_task_submitted(self, event: Event):
@@ -41,10 +43,12 @@ class PlannerPipeline:
         # Convert WorkflowNodeDefs to PlanNodes, injecting parameters
         plan_nodes = []
         for w_node in workflow_def.nodes:
-            # Inject symbol into capabilities that need it
+            # Inject symbol into capabilities that need it dynamically
             params = {}
-            if w_node.capability in ["FetchData", "FetchNews"]:
-                params["symbol"] = symbol
+            if self.capability_service:
+                capability = self.capability_service.get_capability(w_node.capability)
+                if capability and "symbol" in capability.inputs:
+                    params["symbol"] = symbol
                 
             plan_nodes.append(PlanNode(
                 id=w_node.id,
