@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from datetime import datetime
 import uuid
 
@@ -15,3 +15,13 @@ class Task(BaseModel):
     intent: str
     status: str = "created"
     context: Dict[str, Any] = Field(default_factory=dict)
+
+class PlanNode(BaseModel):
+    id: str
+    capability: str
+    dependencies: List[str] = Field(default_factory=list)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    
+class ExecutionPlan(BaseModel):
+    task_id: str
+    nodes: List[PlanNode] = Field(default_factory=list)

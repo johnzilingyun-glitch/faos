@@ -31,22 +31,6 @@ class TaskRequest(BaseModel):
     intent: str
     context: Dict[str, Any] = {}
 
-# We simulate the MockPlanner here for the API as well so the system actually does something
-async def mock_planner_service(event: Event, event_bus):
-    logger.info(f"MockPlanner received Event: {event.type} from {event.source} with payload: {event.payload}")
-    task_id = event.payload.get("task_id")
-    
-    # Simulate processing time
-    await asyncio.sleep(2)
-    logger.info(f"MockPlanner generated plan for Task {task_id}")
-    
-    completion_event = Event(
-        type="TaskCompleted",
-        source="MockPlanner",
-        payload={"task_id": task_id, "result": "Task execution successful!"}
-    )
-    await event_bus.publish(completion_event)
-
 async def broadcast_event(event: Event):
     """Broadcasts an event to all connected WebSockets."""
     event_dict = event.model_dump()
@@ -67,9 +51,6 @@ async def startup_event():
     
     # Subscribe the WebSocket broadcaster to all events
     runtime.event_bus.subscribe("*", broadcast_event)
-    
-    # Subscribe the mock planner to TaskSubmitted
-    runtime.event_bus.subscribe("TaskSubmitted", lambda e: mock_planner_service(e, runtime.event_bus))
     
     logger.info("FAOS API Server started.")
 

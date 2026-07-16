@@ -4,6 +4,8 @@ from typing import Dict, Optional
 from faos.core.models import Task, Event
 from faos.core.event_bus import EventBus
 from faos.core.context import ExecutionContext
+from faos.execution.planner import PlannerPipeline
+from faos.execution.engine import ExecutionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,23 @@ class TaskRuntime:
         self.event_bus = EventBus()
         self.active_tasks: Dict[str, Task] = {}
         self.contexts: Dict[str, ExecutionContext] = {}
+        
+        from faos.services.reasoning.service import ReasoningService
+        self.reasoning = ReasoningService()
+        
+        from faos.services.skill.service import SkillService
+        from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill
+        
+        self.skill_service = SkillService()
+        self.skill_service.register_skill(FetchDataSkill())
+        self.skill_service.register_skill(FetchNewsSkill())
+        self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
+        self.skill_service.register_skill(GenerateReportSkill())
+        
+        # Instantiate Planner and Execution Engine
+        self.planner = PlannerPipeline(self.event_bus)
+        self.engine = ExecutionEngine(self.event_bus, self.contexts, skill_service=self.skill_service)
+        
         self._running = False
         
         # Subscribe to internal lifecycle events
