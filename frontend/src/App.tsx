@@ -45,14 +45,14 @@ const getNodeName = (nodeId: string) => {
 
 const MODEL_OPTIONS: Record<string, string[]> = {
   mock: ['mock-model'],
-  gemini: ['gemini-3.5-flash', 'gemini-3.5-pro', 'gemini-2.0-flash'],
-  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  gemini: ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'],
   openrouter: [
     'tencent/hy3:free',
     'openai/gpt-4o',
     'anthropic/claude-3.5-sonnet',
     'meta-llama/llama-3.3-70b-instruct',
-    'google/gemini-3.5-pro'
+    'google/gemini-pro-1.5'
   ]
 };
 
@@ -62,15 +62,15 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [llmProvider, setLlmProvider] = useState(() => localStorage.getItem('faos_provider') || 'mock');
-  const [llmModel, setLlmModel] = useState(() => localStorage.getItem('faos_model') || 'gemini-2.0-flash');
+  const [llmModel, setLlmModel] = useState(() => localStorage.getItem('faos_model') || 'gemini-3.5-flash');
   const [llmApiKey, setLlmApiKey] = useState(() => localStorage.getItem('faos_api_key') || '');
   const [events, setEvents] = useState<FAOSEvent[]>([]);
   const [taskStatus, setTaskStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
-  
+
   // Pipeline Data State
   const [analysisReports, setAnalysisReports] = useState<Record<string, AnalysisReport> | null>(null);
   const [discussion, setDiscussion] = useState<Record<string, any> | null>(null);
-  const [decision, setDecision] = useState<{trader?: TraderStrategy, pm?: PMDecision} | null>(null);
+  const [decision, setDecision] = useState<{ trader?: TraderStrategy, pm?: PMDecision } | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
@@ -160,14 +160,14 @@ function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!intent.trim()) return;
-    
+
     setIsSubmitting(true);
     setEvents([]);
     setAnalysisReports(null);
     setDiscussion(null);
     setDecision(null);
     setTaskStatus('idle');
-    
+
     // Save config
     localStorage.setItem('faos_provider', llmProvider);
     localStorage.setItem('faos_model', llmModel);
@@ -177,15 +177,15 @@ function App() {
       const response = await fetch('http://localhost:8001/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          intent, 
+        body: JSON.stringify({
+          intent,
           context: {
             llm_config: {
               provider: llmProvider,
               model: llmModel,
               api_key: llmApiKey
             }
-          } 
+          }
         }),
       });
       if (!response.ok) throw new Error('Network response was not ok');
@@ -207,11 +207,11 @@ function App() {
             <h1>FAOS TradingAgents</h1>
           </div>
           <form className="topbar-controls" onSubmit={handleSubmit}>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={intent}
               onChange={(e) => setIntent(e.target.value)}
-              placeholder="e.g. Analyze AAPL for swing trading..." 
+              placeholder="e.g. Analyze AAPL for swing trading..."
               disabled={isSubmitting || taskStatus === 'running'}
             />
             <button type="submit" className="btn-primary" disabled={isSubmitting || !intent.trim() || taskStatus === 'running'}>
@@ -250,11 +250,11 @@ function App() {
               </div>
               <div className="config-row">
                 <label>API Key:</label>
-                <input 
-                  type="password" 
-                  value={llmApiKey} 
-                  onChange={(e) => setLlmApiKey(e.target.value)} 
-                  placeholder="Leave empty to use backend default" 
+                <input
+                  type="password"
+                  value={llmApiKey}
+                  onChange={(e) => setLlmApiKey(e.target.value)}
+                  placeholder="Leave empty to use backend default"
                 />
               </div>
             </div>
@@ -280,7 +280,7 @@ function App() {
                     ) : (
                       <>
                         <strong>Conclusion:</strong> {report.conclusion}
-                        <hr style={{opacity: 0.1, margin: '0.75rem 0'}}/>
+                        <hr style={{ opacity: 0.1, margin: '0.75rem 0' }} />
                         <ReactMarkdown>{report.reasoning}</ReactMarkdown>
                       </>
                     )}
@@ -298,9 +298,9 @@ function App() {
               <span className="badge">Stage 2</span>
               Agent Debates
             </h2>
-            
+
             {discussion['Investment Debate'] && (
-              <div className="grid-2x2" style={{marginBottom: '1.5rem'}}>
+              <div className="grid-2x2" style={{ marginBottom: '1.5rem' }}>
                 <div className="impeccable-card card-bull">
                   <div className="card-header">
                     <div className="card-title">Bull Case</div>
@@ -317,7 +317,7 @@ function App() {
             )}
 
             {discussion['Investment Plan'] && (
-              <div className="impeccable-card card-manager" style={{marginBottom: '3rem'}}>
+              <div className="impeccable-card card-manager" style={{ marginBottom: '3rem' }}>
                 <div className="card-header">
                   <div className="card-title">Investment Thesis</div>
                 </div>
@@ -326,7 +326,7 @@ function App() {
             )}
 
             {discussion['Risk Debate'] && (
-              <div className="grid-3" style={{marginBottom: '1.5rem'}}>
+              <div className="grid-3" style={{ marginBottom: '1.5rem' }}>
                 {Object.entries(discussion['Risk Debate']).map(([role, text]) => (
                   <div key={role} className="impeccable-card">
                     <div className="card-header">
@@ -356,17 +356,17 @@ function App() {
               <span className="badge">Stage 3</span>
               Final Verdict
             </h2>
-            
+
             <div className="verdict-card">
               <div className={`verdict-action verdict-${decision.pm.decision}`}>
                 {decision.pm.decision}
               </div>
-              <div style={{color: 'var(--text-secondary)'}}>
+              <div style={{ color: 'var(--text-secondary)' }}>
                 Confidence: {decision.pm.confidence}
               </div>
-              
-              <div className="grid-2x2" style={{width: '100%', gap: '1.5rem', marginTop: '1rem'}}>
-                <div className="verdict-details" style={{background: 'rgba(255,255,255,0.03)'}}>
+
+              <div className="grid-2x2" style={{ width: '100%', gap: '1.5rem', marginTop: '1rem' }}>
+                <div className="verdict-details" style={{ background: 'rgba(255,255,255,0.03)' }}>
                   <h4>Trader Strategy</h4>
                   {decision.trader ? (
                     <>
@@ -377,7 +377,7 @@ function App() {
                     </>
                   ) : <p>No strategy provided.</p>}
                 </div>
-                <div className="verdict-details" style={{background: 'rgba(255,255,255,0.03)'}}>
+                <div className="verdict-details" style={{ background: 'rgba(255,255,255,0.03)' }}>
                   <h4>Portfolio Manager Reasoning</h4>
                   <div className="markdown-body"><ReactMarkdown>{decision.pm.reasoning}</ReactMarkdown></div>
                 </div>
@@ -389,7 +389,7 @@ function App() {
 
       {/* Sidebar (Event Trace) */}
       <div className="sidebar">
-        <div className="sidebar-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+        <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>System Event Trace</span>
           <span style={{
             fontSize: '0.7rem',
@@ -411,16 +411,16 @@ function App() {
               <div key={evt.id} className={`event-item ${evt.type === 'NodeCompleted' ? 'important' : ''}`}>
                 {evt.type === 'NodeStarted' ? (
                   <>
-                    <div><span style={{color: '#fbbf24'}}>▶ Starting</span></div>
-                    <div style={{marginTop: '0.25rem', color: '#e2e8f0'}}>{getNodeName(evt.payload?.node_id)}</div>
+                    <div><span style={{ color: '#fbbf24' }}>▶ Starting</span></div>
+                    <div style={{ marginTop: '0.25rem', color: '#e2e8f0' }}>{getNodeName(evt.payload?.node_id)}</div>
                   </>
                 ) : evt.type === 'NodeCompleted' ? (
                   <>
-                    <div><span style={{color: '#34d399'}}>✓ Completed</span></div>
-                    <div style={{marginTop: '0.25rem', color: '#e2e8f0'}}>{getNodeName(evt.payload?.node_id)}</div>
+                    <div><span style={{ color: '#34d399' }}>✓ Completed</span></div>
+                    <div style={{ marginTop: '0.25rem', color: '#e2e8f0' }}>{getNodeName(evt.payload?.node_id)}</div>
                   </>
                 ) : (
-                  <div><span style={{color: '#60a5fa'}}>[{evt.type}]</span> {evt.source}</div>
+                  <div><span style={{ color: '#60a5fa' }}>[{evt.type}]</span> {evt.source}</div>
                 )}
               </div>
             ))

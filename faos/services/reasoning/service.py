@@ -20,7 +20,7 @@ class ReasoningService:
 
     def __init__(self):
         self.provider = os.environ.get("FAOS_LLM_PROVIDER", "mock").lower()
-        self.default_model = os.environ.get("FAOS_LLM_MODEL", "gemini-2.0-flash")
+        self.default_model = os.environ.get("FAOS_LLM_MODEL", "gemini-3.5-flash")
         self._client = None
 
         if self.provider == "gemini":
@@ -84,12 +84,14 @@ class ReasoningService:
         user_message = self._build_user_message(request.context_data)
 
         # Build contents list
-        contents = []
+        contents = [user_message]
+        
+        from google.genai import types
+        config = None
         if request.prompt:
-            # Use system instruction for persona
-            contents.append(f"[System Instruction]\n{request.prompt}\n\n[User Data]\n{user_message}")
-        else:
-            contents.append(user_message)
+            config = types.GenerateContentConfig(
+                system_instruction=request.prompt,
+            )
 
         try:
             # Run the synchronous SDK call in a thread to avoid blocking the event loop
@@ -97,6 +99,7 @@ class ReasoningService:
                 client.models.generate_content,
                 model=model,
                 contents=contents,
+                config=config,
             )
 
             raw_text = response.text or ""
