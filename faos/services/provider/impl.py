@@ -9,7 +9,8 @@ class MockQuoteProvider(BaseProvider):
             id="mock_quote",
             name="Mock Quote Provider",
             category="market",
-            capabilities=["realtime_quote"]
+            capabilities=["realtime_quote"],
+            priority=10
         )
         
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:
@@ -32,7 +33,8 @@ class MockNewsProvider(BaseProvider):
             id="mock_news",
             name="Mock News Provider",
             category="news",
-            capabilities=["news_search"]
+            capabilities=["news_search"],
+            priority=10
         )
         
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:

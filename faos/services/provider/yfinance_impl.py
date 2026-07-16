@@ -14,7 +14,8 @@ class YFinanceQuoteProvider(BaseProvider):
             id="yfinance_quote",
             name="YFinance Quote Provider",
             category="market",
-            capabilities=["realtime_quote"]
+            capabilities=["realtime_quote"],
+            priority=100
         )
 
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:
@@ -48,7 +49,8 @@ class YFinanceNewsProvider(BaseProvider):
             id="yfinance_news",
             name="YFinance News Provider",
             category="news",
-            capabilities=["news_search"]
+            capabilities=["news_search"],
+            priority=100
         )
 
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:

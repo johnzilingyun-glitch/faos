@@ -15,9 +15,12 @@ async def test_skill_service_registration_and_execution():
     provider_service.register_provider(MockQuoteProvider())
     provider_service.register_provider(MockNewsProvider())
     
+    from faos.services.data_route.service import DataRouteService
+    data_route = DataRouteService(provider_service)
+
     # Register skills
-    service.register_skill(FetchDataSkill(provider_service=provider_service))
-    service.register_skill(FetchNewsSkill(provider_service=provider_service))
+    service.register_skill(FetchDataSkill(data_route=data_route))
+    service.register_skill(FetchNewsSkill(data_route=data_route))
     
     # Verify retrieval
     assert service.get_skill("FetchData") is not None

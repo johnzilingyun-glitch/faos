@@ -27,11 +27,14 @@ async def test_engine_dag_execution():
     provider_service.register_provider(MockQuoteProvider())
     provider_service.register_provider(MockNewsProvider())
     
+    from faos.services.data_route.service import DataRouteService
+    data_route = DataRouteService(provider_service)
+
     decision_service = DecisionService()
     
     skill_service = SkillService()
-    skill_service.register_skill(FetchDataSkill(provider_service))
-    skill_service.register_skill(FetchNewsSkill(provider_service))
+    skill_service.register_skill(FetchDataSkill(data_route))
+    skill_service.register_skill(FetchNewsSkill(data_route))
     skill_service.register_skill(AnalyzeSkill(reasoning_service))
     skill_service.register_skill(DecisionSkill(decision_service))
     

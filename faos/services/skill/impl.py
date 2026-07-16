@@ -9,8 +9,8 @@ from faos.services.decision.service import DecisionService
 from faos.services.decision.models import DecisionRequest
 
 class FetchDataSkill(BaseSkill):
-    def __init__(self, provider_service: ProviderService):
-        self.provider_service = provider_service
+    def __init__(self, data_route):
+        self.data_route = data_route
         
     @property
     def manifest(self) -> SkillManifest:
@@ -25,7 +25,7 @@ class FetchDataSkill(BaseSkill):
         symbol = request.parameters.get("symbol", "AAPL")
         
         provider_req = ProviderRequest(entity=symbol)
-        provider_resp = await self.provider_service.fetch_by_category("market", provider_req)
+        provider_resp = await self.data_route.fetch_data("market", provider_req)
         
         if provider_resp.status == "failed":
             return SkillResponse(status="failed", error=provider_resp.error)
@@ -36,8 +36,8 @@ class FetchDataSkill(BaseSkill):
 
 
 class FetchNewsSkill(BaseSkill):
-    def __init__(self, provider_service: ProviderService):
-        self.provider_service = provider_service
+    def __init__(self, data_route):
+        self.data_route = data_route
         
     @property
     def manifest(self) -> SkillManifest:
@@ -52,7 +52,7 @@ class FetchNewsSkill(BaseSkill):
         symbol = request.parameters.get("symbol", "AAPL")
         
         provider_req = ProviderRequest(entity=symbol)
-        provider_resp = await self.provider_service.fetch_by_category("news", provider_req)
+        provider_resp = await self.data_route.fetch_data("news", provider_req)
         
         if provider_resp.status == "failed":
             return SkillResponse(status="failed", error=provider_resp.error)

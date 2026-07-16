@@ -37,21 +37,23 @@ class TaskRuntime:
         
         self.provider_service = ProviderService()
         
-        if faos_env == "real":
-            from faos.services.provider.yfinance_impl import YFinanceQuoteProvider, YFinanceNewsProvider
-            self.provider_service.register_provider(YFinanceQuoteProvider())
-            self.provider_service.register_provider(YFinanceNewsProvider())
-            logger.info("TaskRuntime using REAL providers (YFinance)")
-        else:
-            self.provider_service.register_provider(MockQuoteProvider())
-            self.provider_service.register_provider(MockNewsProvider())
-            logger.info("TaskRuntime using MOCK providers")
+        # Register real providers (Priority 100)
+        from faos.services.provider.yfinance_impl import YFinanceQuoteProvider, YFinanceNewsProvider
+        self.provider_service.register_provider(YFinanceQuoteProvider())
+        self.provider_service.register_provider(YFinanceNewsProvider())
+        
+        # Register mock providers (Priority 10)
+        self.provider_service.register_provider(MockQuoteProvider())
+        self.provider_service.register_provider(MockNewsProvider())
+        
+        from faos.services.data_route.service import DataRouteService
+        self.data_route = DataRouteService(self.provider_service)
         
         self.decision_service = DecisionService()
         
         self.skill_service = SkillService()
-        self.skill_service.register_skill(FetchDataSkill(provider_service=self.provider_service))
-        self.skill_service.register_skill(FetchNewsSkill(provider_service=self.provider_service))
+        self.skill_service.register_skill(FetchDataSkill(data_route=self.data_route))
+        self.skill_service.register_skill(FetchNewsSkill(data_route=self.data_route))
         self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
         self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service))
         
