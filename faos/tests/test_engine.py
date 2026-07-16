@@ -34,7 +34,10 @@ async def test_engine_dag_execution():
     skill_service.register_skill(FetchNewsSkill(provider_service))
     skill_service.register_skill(AnalyzeSkill(reasoning_service))
     skill_service.register_skill(DecisionSkill(decision_service))
-    skill_service.register_skill(GenerateReportSkill())
+    
+    from faos.services.report.service import ReportService
+    report_service = ReportService()
+    skill_service.register_skill(GenerateReportSkill(report_service))
 
     engine = ExecutionEngine(event_bus, contexts, skill_service=skill_service)
 

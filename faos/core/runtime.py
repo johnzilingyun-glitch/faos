@@ -54,7 +54,10 @@ class TaskRuntime:
         self.skill_service.register_skill(FetchNewsSkill(provider_service=self.provider_service))
         self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
         self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service))
-        self.skill_service.register_skill(GenerateReportSkill())
+        
+        from faos.services.report.service import ReportService
+        self.report_service = ReportService()
+        self.skill_service.register_skill(GenerateReportSkill(report_service=self.report_service))
         
         from faos.services.workflow.service import WorkflowService
         from faos.services.workflow.standard import get_analyze_stock_workflow
