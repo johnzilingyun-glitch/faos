@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from faos.core.context import ExecutionContext
 from faos.services.reasoning.models import ReasoningRequest, ReasoningResponse
+from faos.services.reasoning.prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class ReasoningService:
         self.provider = os.environ.get("FAOS_LLM_PROVIDER", "mock").lower()
         self.default_model = os.environ.get("FAOS_LLM_MODEL", "gemini-3.5-flash")
         self._client = None
+        self.prompt_builder = PromptBuilder()
 
         if self.provider == "gemini":
             api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -81,7 +83,10 @@ class ReasoningService:
             )
 
         # Build the user message from context data
-        user_message = self._build_user_message(request.context_data)
+        user_message = self.prompt_builder.build_user_prompt(
+            intent=request.prompt or "Analyze the provided context.",
+            context_data=request.context_data
+        )
 
         # Build contents list
         contents = [user_message]
@@ -160,7 +165,10 @@ class ReasoningService:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             
-            user_message = self._build_user_message(request.context_data)
+            user_message = self.prompt_builder.build_user_prompt(
+                intent=request.prompt or "Analyze the provided context.",
+                context_data=request.context_data
+            )
             messages = []
             if request.prompt:
                 messages.append({"role": "system", "content": request.prompt})
@@ -241,18 +249,4 @@ class ReasoningService:
         )
 
     # ── Helpers ──────────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_user_message(context_data: Dict[str, Any]) -> str:
-        """Convert context_data dict into a readable string for the LLM."""
-        parts = []
-        for key, value in context_data.items():
-            if isinstance(value, (dict, list)):
-                try:
-                    serialized = json.dumps(value, indent=2, default=str, ensure_ascii=False)
-                except Exception:
-                    serialized = str(value)
-                parts.append(f"## {key}\n```json\n{serialized}\n```")
-            else:
-                parts.append(f"## {key}\n{value}")
-        return "\n\n".join(parts) if parts else "No context data provided."
+    # _build_user_message is now handled by PromptBuilder

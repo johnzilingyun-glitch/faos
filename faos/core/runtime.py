@@ -23,6 +23,44 @@ class TaskRuntime:
         self.active_tasks: Dict[str, Task] = {}
         self.contexts: Dict[str, ExecutionContext] = {}
         
+        from faos.services.observability.service import ObservabilityService
+        self.observability = ObservabilityService(event_bus=self.event_bus)
+
+        
+        from faos.services.plugin.service import PluginService
+        self.plugin_service = PluginService()
+        
+        from faos.services.knowledge.service import KnowledgeService
+        from faos.services.knowledge.models import KnowledgeItem, KnowledgeCategory
+        
+        self.knowledge_service = KnowledgeService()
+        
+        # Register base Capability Knowledge
+        self.knowledge_service.register_item(KnowledgeItem(
+            id="capability.fetch_data",
+            name="Fetch Market Data",
+            category=KnowledgeCategory.CAPABILITY,
+            description="Fetch stock quotes and price information",
+            metadata={"related_skills": ["FetchDataSkill"]}
+        ))
+        
+        self.knowledge_service.register_item(KnowledgeItem(
+            id="capability.fetch_news",
+            name="Fetch Market News",
+            category=KnowledgeCategory.CAPABILITY,
+            description="Fetch recent news articles and sentiment for an entity",
+            metadata={"related_skills": ["FetchNewsSkill"]}
+        ))
+        
+        self.knowledge_service.register_item(KnowledgeItem(
+            id="capability.analyze",
+            name="Analyze Entity",
+            category=KnowledgeCategory.CAPABILITY,
+            description="Analyze financial metrics and market sentiment",
+            metadata={"related_skills": ["AnalyzeSkill"]}
+        ))
+        
+        
         import os
         faos_env = os.environ.get("FAOS_ENV", "mock").lower()
         
@@ -66,6 +104,11 @@ class TaskRuntime:
         
         self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service))
         
+        from faos.services.reflection.service import ReflectionService
+        from faos.services.skill.impl import ReflectionSkill
+        self.reflection_service = ReflectionService(self.reasoning)
+        self.skill_service.register_skill(ReflectionSkill(reflection_service=self.reflection_service))
+        
         from faos.services.report.service import ReportService
         self.report_service = ReportService()
         self.skill_service.register_skill(GenerateReportSkill(report_service=self.report_service))
@@ -85,6 +128,7 @@ class TaskRuntime:
         self.capability_service.register_capability(CapabilityManifest(id="cap.analyze", name="Analyze", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.discuss", name="Discussion", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.reflection", name="Reflection", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
         
         # Instantiate Planner and Execution Engine

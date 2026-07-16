@@ -9,6 +9,9 @@ class Event(BaseModel):
     source: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     payload: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
     
 class Task(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))

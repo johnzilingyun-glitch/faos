@@ -47,11 +47,24 @@ async def main():
     decision = context.results.get("decision")
     if decision:
         print(f"Action: {decision['action']}")
+        print(f"Score: {decision.get('score', 'N/A')}")
         print(f"Confidence: {decision['confidence']}")
+        print(f"Risk: {decision.get('risk', 'N/A')}")
         print(f"Strategy: {decision['strategy']}")
         print(f"Reason: {decision['reason']}")
     else:
         print("No decision generated.")
+        
+    print("\n========================================")
+    print("Reflection (Self-Review):")
+    print("========================================")
+    reflection = context.results.get("reflection")
+    if reflection:
+        print(f"Passed: {reflection['is_passed']}")
+        print(f"Confidence: {reflection['confidence']}")
+        print(f"Feedback: {reflection['feedback']}")
+    else:
+        print("No reflection generated.")
     
     print("\n========================================")
     print("Report Generated with REAL Data:")
@@ -62,6 +75,11 @@ async def main():
         print(report)
     else:
         print("No report generated.")
+        
+    print("\n========================================")
+    print("Runtime Timeline:")
+    print("========================================")
+    print(runtime.observability.timeline.dump_timeline_string(task_id))
         
     await runtime.stop()
 

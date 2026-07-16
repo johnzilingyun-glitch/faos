@@ -190,3 +190,42 @@ class DiscussSkill(BaseSkill):
         request.context.add_result("discussion", response.model_dump())
         
         return SkillResponse(status="success", output={"consensus": response.consensus})
+
+
+class ReflectionSkill(BaseSkill):
+    def __init__(self, reflection_service):
+        self.reflection_service = reflection_service
+        
+    @property
+    def manifest(self) -> SkillManifest:
+        return SkillManifest(
+            id="stock.reflection.risk",
+            name="Reflection Risk Skill",
+            capability="Reflection",
+            description="Uses ReflectionService to perform hallucination and logic checks"
+        )
+        
+    async def execute(self, request: SkillRequest) -> SkillResponse:
+        from faos.services.reflection.models import ReflectionRequest
+        
+        target_data = request.context.results.copy()
+        
+        reflection_req = ReflectionRequest(
+            task_id=request.task_id,
+            target_data=target_data,
+            llm_config=request.context.get_variable("llm_config", {})
+        )
+        
+        result = await self.reflection_service.evaluate(reflection_req)
+        
+        reflection_data = {
+            "is_passed": result.is_passed,
+            "confidence": result.confidence,
+            "feedback": result.feedback
+        }
+        if result.revised_data:
+            reflection_data["revised_data"] = result.revised_data
+            
+        request.context.add_result("reflection", reflection_data)
+            
+        return SkillResponse(status="success", output={"feedback": result.feedback, "is_passed": result.is_passed})

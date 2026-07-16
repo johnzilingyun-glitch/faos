@@ -28,9 +28,14 @@ def get_analyze_stock_workflow() -> WorkflowDefinition:
                 dependencies=["node_discuss"]
             ),
             WorkflowNodeDef(
+                id="node_reflection",
+                capability="Reflection",
+                dependencies=["node_decision"]
+            ),
+            WorkflowNodeDef(
                 id="node4", 
                 capability="GenerateReport", 
-                dependencies=["node_decision"]
+                dependencies=["node_reflection"]
             )
         ]
     )
