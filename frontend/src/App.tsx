@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import './index.css';
 
 interface FAOSEvent {
   id: string;
@@ -44,6 +46,10 @@ const getNodeName = (nodeId: string) => {
 function App() {
   const [intent, setIntent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const [llmProvider, setLlmProvider] = useState(() => localStorage.getItem('faos_provider') || 'mock');
+  const [llmModel, setLlmModel] = useState(() => localStorage.getItem('faos_model') || 'gemini-2.0-flash');
+  const [llmApiKey, setLlmApiKey] = useState(() => localStorage.getItem('faos_api_key') || '');
   const [events, setEvents] = useState<FAOSEvent[]>([]);
   const [taskStatus, setTaskStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
   
@@ -148,11 +154,25 @@ function App() {
     setDecision(null);
     setTaskStatus('idle');
     
+    // Save config
+    localStorage.setItem('faos_provider', llmProvider);
+    localStorage.setItem('faos_model', llmModel);
+    localStorage.setItem('faos_api_key', llmApiKey);
+
     try {
       const response = await fetch('http://localhost:8001/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intent, context: {} }),
+        body: JSON.stringify({ 
+          intent, 
+          context: {
+            llm_config: {
+              provider: llmProvider,
+              model: llmModel,
+              api_key: llmApiKey
+            }
+          } 
+        }),
       });
       if (!response.ok) throw new Error('Network response was not ok');
     } catch (error) {
@@ -183,10 +203,50 @@ function App() {
             <button type="submit" className="btn-primary" disabled={isSubmitting || !intent.trim() || taskStatus === 'running'}>
               {isSubmitting ? 'Submitting...' : 'Analyze'}
             </button>
+            <button type="button" className="btn-secondary" onClick={() => setShowConfig(!showConfig)}>
+              ⚙️
+            </button>
             <div className={`status-indicator status-${taskStatus}`}>
               {taskStatus.toUpperCase()}
             </div>
           </form>
+          {showConfig && (
+            <div className="config-panel impeccable-card">
+              <div className="config-row">
+                <label>Provider:</label>
+                <select value={llmProvider} onChange={(e) => {
+                  const val = e.target.value;
+                  setLlmProvider(val);
+                  if (val === 'deepseek') setLlmModel('deepseek-chat');
+                  else if (val === 'openrouter') setLlmModel('openai/gpt-4o-mini');
+                  else if (val === 'gemini') setLlmModel('gemini-2.0-flash');
+                }}>
+                  <option value="mock">Mock</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openrouter">OpenRouter</option>
+                </select>
+              </div>
+              <div className="config-row">
+                <label>Model:</label>
+                <input 
+                  type="text" 
+                  value={llmModel} 
+                  onChange={(e) => setLlmModel(e.target.value)} 
+                  placeholder="e.g. gemini-2.0-flash" 
+                />
+              </div>
+              <div className="config-row">
+                <label>API Key:</label>
+                <input 
+                  type="password" 
+                  value={llmApiKey} 
+                  onChange={(e) => setLlmApiKey(e.target.value)} 
+                  placeholder="Leave empty to use backend default" 
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Stage 1: Analyze */}
@@ -198,14 +258,20 @@ function App() {
             </h2>
             <div className="grid-2x2">
               {Object.entries(analysisReports).map(([name, report]) => (
-                <div key={name} className="glass-card">
+                <div key={name} className="impeccable-card">
                   <div className="card-header">
                     <div className="card-title">{name}</div>
                   </div>
-                  <div className="card-body small">
-                    <strong>Conclusion:</strong> {report.conclusion}
-                    <hr style={{opacity: 0.1, margin: '0.75rem 0'}}/>
-                    {report.reasoning}
+                  <div className="card-body small markdown-body">
+                    {typeof report === 'string' ? (
+                      <ReactMarkdown>{report}</ReactMarkdown>
+                    ) : (
+                      <>
+                        <strong>Conclusion:</strong> {report.conclusion}
+                        <hr style={{opacity: 0.1, margin: '0.75rem 0'}}/>
+                        <ReactMarkdown>{report.reasoning}</ReactMarkdown>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -223,49 +289,49 @@ function App() {
             
             {discussion['Investment Debate'] && (
               <div className="grid-2x2" style={{marginBottom: '1.5rem'}}>
-                <div className="glass-card card-bull">
+                <div className="impeccable-card card-bull">
                   <div className="card-header">
-                    <div className="card-title">🐂 Bull Researcher</div>
+                    <div className="card-title">Bull Case</div>
                   </div>
-                  <div className="card-body small">{discussion['Investment Debate']['Bull']}</div>
+                  <div className="card-body small markdown-body"><ReactMarkdown>{discussion['Investment Debate']['Bull']}</ReactMarkdown></div>
                 </div>
-                <div className="glass-card card-bear">
+                <div className="impeccable-card card-bear">
                   <div className="card-header">
-                    <div className="card-title">🐻 Bear Researcher</div>
+                    <div className="card-title">Bear Case</div>
                   </div>
-                  <div className="card-body small">{discussion['Investment Debate']['Bear']}</div>
+                  <div className="card-body small markdown-body"><ReactMarkdown>{discussion['Investment Debate']['Bear']}</ReactMarkdown></div>
                 </div>
               </div>
             )}
 
             {discussion['Investment Plan'] && (
-              <div className="glass-card card-manager" style={{marginBottom: '3rem'}}>
+              <div className="impeccable-card card-manager" style={{marginBottom: '3rem'}}>
                 <div className="card-header">
-                  <div className="card-title">👔 Research Manager: Investment Plan</div>
+                  <div className="card-title">Investment Thesis</div>
                 </div>
-                <div className="card-body">{discussion['Investment Plan']}</div>
+                <div className="card-body markdown-body"><ReactMarkdown>{discussion['Investment Plan']}</ReactMarkdown></div>
               </div>
             )}
 
             {discussion['Risk Debate'] && (
               <div className="grid-3" style={{marginBottom: '1.5rem'}}>
                 {Object.entries(discussion['Risk Debate']).map(([role, text]) => (
-                  <div key={role} className="glass-card">
+                  <div key={role} className="impeccable-card">
                     <div className="card-header">
-                      <div className="card-title">🛡️ {role} Risk</div>
+                      <div className="card-title">{role} Risk Assessment</div>
                     </div>
-                    <div className="card-body small">{text as string}</div>
+                    <div className="card-body small markdown-body"><ReactMarkdown>{text as string}</ReactMarkdown></div>
                   </div>
                 ))}
               </div>
             )}
 
             {discussion['Risk Plan'] && (
-              <div className="glass-card card-manager">
+              <div className="impeccable-card card-manager">
                 <div className="card-header">
-                  <div className="card-title">👨‍💼 Chief Risk Officer: Risk Plan</div>
+                  <div className="card-title">Risk Management Plan</div>
                 </div>
-                <div className="card-body">{discussion['Risk Plan']}</div>
+                <div className="card-body markdown-body"><ReactMarkdown>{discussion['Risk Plan']}</ReactMarkdown></div>
               </div>
             )}
           </div>
@@ -301,7 +367,7 @@ function App() {
                 </div>
                 <div className="verdict-details" style={{background: 'rgba(255,255,255,0.03)'}}>
                   <h4>Portfolio Manager Reasoning</h4>
-                  <p>{decision.pm.reasoning}</p>
+                  <div className="markdown-body"><ReactMarkdown>{decision.pm.reasoning}</ReactMarkdown></div>
                 </div>
               </div>
             </div>

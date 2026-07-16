@@ -6,6 +6,7 @@ class DecisionRequest(BaseModel):
     context_data: Dict[str, Any] = Field(default_factory=dict)
     reasoning_results: Dict[str, Any] = Field(default_factory=dict)
     policy: str = "Standard"
+    llm_config: Dict[str, Any] = Field(default_factory=dict, description="Dynamic LLM configuration")
 
 class DecisionResult(BaseModel):
     action: str = Field(..., description="Action to take, e.g., BUY, SELL, HOLD")

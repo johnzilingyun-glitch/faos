@@ -25,7 +25,8 @@ class AnalyzeService:
             req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=request.context_data,
-                prompt=prompt
+                prompt=prompt,
+                llm_config=request.llm_config
             )
             tasks.append(self._run_analyst(name, req))
             

@@ -78,7 +78,8 @@ class AnalyzeSkill(BaseSkill):
         from faos.services.analyze.models import AnalyzeRequest
         analyze_req = AnalyzeRequest(
             task_id=request.task_id,
-            context_data=request.context.provider_outputs
+            context_data=request.context.provider_outputs,
+            llm_config=request.context.get_variable("llm_config", {})
         )
         response = await self.analyze_service.analyze(analyze_req)
         
@@ -102,7 +103,8 @@ class DecisionSkill(BaseSkill):
     async def execute(self, request: SkillRequest) -> SkillResponse:
         decision_req = DecisionRequest(
             task_id=request.task_id,
-            reasoning_results=request.context.results
+            reasoning_results=request.context.results,
+            llm_config=request.context.get_variable("llm_config", {})
         )
         
         result = await self.decision_service.evaluate(decision_req)
@@ -176,7 +178,8 @@ class DiscussSkill(BaseSkill):
         
         disc_req = DiscussionRequest(
             task_id=request.task_id,
-            context_data=context_data
+            context_data=context_data,
+            llm_config=request.context.get_variable("llm_config", {})
         )
         
         response = await self.discussion.discuss(disc_req)

@@ -10,6 +10,7 @@ class AgentOpinion(BaseModel):
 class DiscussionRequest(BaseModel):
     task_id: str
     context_data: Dict[str, Any] = Field(default_factory=dict, description="The data to discuss")
+    llm_config: Dict[str, Any] = Field(default_factory=dict, description="Dynamic LLM configuration")
 
 class DiscussionResponse(BaseModel):
     status: str = Field(..., description="Status of the discussion, 'success' or 'failed'")

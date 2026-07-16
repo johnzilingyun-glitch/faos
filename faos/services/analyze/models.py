@@ -4,6 +4,7 @@ from typing import Dict, Any
 class AnalyzeRequest(BaseModel):
     task_id: str
     context_data: Dict[str, Any] = Field(default_factory=dict, description="Raw data from providers")
+    llm_config: Dict[str, Any] = Field(default_factory=dict, description="Dynamic LLM configuration")
 
 class AnalyzeResponse(BaseModel):
     task_id: str

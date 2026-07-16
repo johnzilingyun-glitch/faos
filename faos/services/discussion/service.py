@@ -44,7 +44,8 @@ class DiscussionService:
             research_manager_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=investment_context,
-                prompt=RESEARCH_MANAGER_PROMPT
+                prompt=RESEARCH_MANAGER_PROMPT,
+                llm_config=request.llm_config
             )
             rm_resp = await self.reasoning.analyze_context(research_manager_req)
             investment_plan = rm_resp.raw_response
@@ -69,7 +70,8 @@ class DiscussionService:
             cro_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=risk_debate_context,
-                prompt=CHIEF_RISK_OFFICER_PROMPT
+                prompt=CHIEF_RISK_OFFICER_PROMPT,
+                llm_config=request.llm_config
             )
             cro_resp = await self.reasoning.analyze_context(cro_req)
             risk_plan = cro_resp.raw_response
@@ -97,7 +99,8 @@ class DiscussionService:
             req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=context,
-                prompt=prompt
+                prompt=prompt,
+                llm_config=request.llm_config
             )
             tasks.append(self.reasoning.analyze_context(req))
             keys.append(name)

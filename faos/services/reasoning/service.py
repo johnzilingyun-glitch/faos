@@ -46,8 +46,14 @@ class ReasoningService:
         """
         logger.info(f"ReasoningService analyzing context for task {request.task_id}")
 
-        if self.provider == "gemini":
+        provider = self.provider
+        if request.llm_config and "provider" in request.llm_config:
+            provider = request.llm_config["provider"].lower()
+
+        if provider == "gemini":
             return await self._call_gemini(request)
+        elif provider in ("deepseek", "openrouter"):
+            return await self._call_openai_compatible(request, provider)
         else:
             return await self._call_mock(request)
 
@@ -56,6 +62,23 @@ class ReasoningService:
     async def _call_gemini(self, request: ReasoningRequest) -> ReasoningResponse:
         """Call Google Gemini API with the agent prompt and context data."""
         model = request.model or self.default_model
+        client = self._client
+        
+        if request.llm_config:
+            if "model" in request.llm_config:
+                model = request.llm_config["model"]
+            if request.llm_config.get("api_key"):
+                from google import genai
+                client = genai.Client(api_key=request.llm_config["api_key"])
+                
+        if not client:
+            return ReasoningResponse(
+                task_id=request.task_id,
+                insights={},
+                confidence=0.0,
+                raw_response="[LLM Error] Missing API Key for Gemini Provider.",
+                usage={},
+            )
 
         # Build the user message from context data
         user_message = self._build_user_message(request.context_data)
@@ -71,7 +94,7 @@ class ReasoningService:
         try:
             # Run the synchronous SDK call in a thread to avoid blocking the event loop
             response = await asyncio.to_thread(
-                self._client.models.generate_content,
+                client.models.generate_content,
                 model=model,
                 contents=contents,
             )
@@ -99,6 +122,73 @@ class ReasoningService:
         except Exception as e:
             logger.error(f"Gemini API call failed: {e}")
             # Graceful degradation: return error text instead of crashing the pipeline
+            return ReasoningResponse(
+                task_id=request.task_id,
+                insights={},
+                confidence=0.0,
+                raw_response=f"[LLM Error] {str(e)}",
+                usage={},
+            )
+
+    # ── OpenAI Compatible Provider ──────────────────────────────────
+
+    async def _call_openai_compatible(self, request: ReasoningRequest, provider: str) -> ReasoningResponse:
+        """Call DeepSeek or OpenRouter API using OpenAI SDK."""
+        model = request.model or ("deepseek-chat" if provider == "deepseek" else "openai/gpt-4o-mini")
+        api_key = ""
+        base_url = "https://api.deepseek.com" if provider == "deepseek" else "https://openrouter.ai/api/v1"
+
+        if request.llm_config:
+            if "model" in request.llm_config and request.llm_config["model"]:
+                model = request.llm_config["model"]
+            if request.llm_config.get("api_key"):
+                api_key = request.llm_config["api_key"]
+
+        if not api_key:
+            return ReasoningResponse(
+                task_id=request.task_id,
+                insights={},
+                confidence=0.0,
+                raw_response=f"[LLM Error] Missing API Key for {provider.capitalize()} Provider.",
+                usage={},
+            )
+
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            
+            user_message = self._build_user_message(request.context_data)
+            messages = []
+            if request.prompt:
+                messages.append({"role": "system", "content": request.prompt})
+                messages.append({"role": "user", "content": user_message})
+            else:
+                messages.append({"role": "user", "content": user_message})
+
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+
+            raw_text = response.choices[0].message.content or ""
+            usage = {}
+            if response.usage:
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
+
+            return ReasoningResponse(
+                task_id=request.task_id,
+                insights={},
+                confidence=0.0,
+                raw_response=raw_text,
+                usage=usage,
+            )
+
+        except Exception as e:
+            logger.error(f"{provider.capitalize()} API call failed: {e}")
             return ReasoningResponse(
                 task_id=request.task_id,
                 insights={},

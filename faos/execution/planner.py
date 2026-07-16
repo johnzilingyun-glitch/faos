@@ -24,12 +24,23 @@ class PlannerPipeline:
             logger.error("WorkflowService is not initialized in PlannerPipeline")
             return
             
-        # 1. Intent Parsing (Mock logic for Phase 6)
-        # Extract symbol from intent like "Analyze AAPL" or default to AAPL
+        # Extract symbol from intent
         symbol = "AAPL"
-        match = re.search(r"Analyze\s+([A-Za-z]+)", intent, re.IGNORECASE)
-        if match:
-            symbol = match.group(1).upper()
+        
+        # Try to find an uppercase word first (e.g. MSFT, TSLA)
+        upper_match = re.search(r"\b([A-Z]{2,5})\b", intent)
+        if upper_match:
+            symbol = upper_match.group(1)
+        else:
+            # Fallback to the first word after 'analyze'
+            match = re.search(r"Analyze\s+([A-Za-z]+)", intent, re.IGNORECASE)
+            if match:
+                symbol = match.group(1).upper()
+            else:
+                # Fallback to first possible word 
+                word_match = re.search(r"\b([A-Za-z]{2,5})\b", intent)
+                if word_match:
+                    symbol = word_match.group(1).upper()
             
         # 2. Workflow Discovery (Mock static selection for Phase 6)
         workflow_id = "AnalyzeStockWorkflow"

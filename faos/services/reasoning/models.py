@@ -7,6 +7,7 @@ class ReasoningRequest(BaseModel):
     prompt_template: str = Field(default="", description="The template to guide the reasoning")
     prompt: Optional[str] = Field(default=None, description="System prompt to define agent persona")
     model: Optional[str] = Field(default=None, description="Override LLM model name for this request")
+    llm_config: Optional[Dict[str, Any]] = Field(default=None, description="Dynamic LLM configuration overriding global env")
 
 class ReasoningResponse(BaseModel):
     task_id: str

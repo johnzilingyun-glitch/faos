@@ -120,7 +120,10 @@ class TaskRuntime:
         """Entry point for users to submit a new Task."""
         task = Task(intent=intent, context=initial_context or {})
         self.active_tasks[task.id] = task
-        self.contexts[task.id] = ExecutionContext(task_id=task.id)
+        
+        # Initialize ExecutionContext with the initial_context variables (like llm_config)
+        context_vars = initial_context.copy() if initial_context else {}
+        self.contexts[task.id] = ExecutionContext(task_id=task.id, variables=context_vars)
         
         # Publish TaskSubmitted event to trigger Planner Pipeline
         event = Event(

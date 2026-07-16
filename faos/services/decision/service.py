@@ -28,7 +28,8 @@ class DecisionService:
         trader_req = ReasoningRequest(
             task_id=request.task_id,
             context_data={"consensus": discussion_consensus},
-            prompt=TRADER_PROMPT
+            prompt=TRADER_PROMPT,
+            llm_config=request.llm_config
         )
         trader_resp = await self.reasoning.analyze_context(trader_req)
         trader_proposal = trader_resp.raw_response
@@ -41,7 +42,8 @@ class DecisionService:
         pm_req = ReasoningRequest(
             task_id=request.task_id,
             context_data=pm_context,
-            prompt=PORTFOLIO_MANAGER_PROMPT
+            prompt=PORTFOLIO_MANAGER_PROMPT,
+            llm_config=request.llm_config
         )
         pm_resp = await self.reasoning.analyze_context(pm_req)
         pm_decision = pm_resp.raw_response
