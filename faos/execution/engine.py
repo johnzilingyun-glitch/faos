@@ -174,7 +174,7 @@ class ExecutionEngine:
                 
             output = {"status": "success", "result": response.output}
 
-            # Publish NodeCompleted event
+            # Publish NodeCompleted event with context results snapshot
             completed_event = Event(
                 type="NodeCompleted",
                 source="ExecutionEngine",
@@ -182,7 +182,8 @@ class ExecutionEngine:
                     "task_id": task_id,
                     "node_id": node.id,
                     "capability": node.capability,
-                    "output": output
+                    "output": output,
+                    "results": dict(context.results)
                 }
             )
             await self.event_bus.publish(completed_event)

@@ -59,47 +59,82 @@ function App() {
     eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [events]);
 
-  useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8001/ws/events');
-    
-    ws.onopen = () => console.log('Connected to FAOS EventBus');
-    
-    ws.onmessage = (event) => {
-      try {
-        const faosEvent: FAOSEvent = JSON.parse(event.data);
-        setEvents(prev => [...prev, faosEvent]);
-        
-        if (faosEvent.type === 'TaskSubmitted') setTaskStatus('running');
-        if (faosEvent.type === 'TaskCompleted') setTaskStatus('completed');
-        if (faosEvent.type === 'TaskFailed') setTaskStatus('failed');
+  const [wsConnected, setWsConnected] = useState(false);
 
-        // Extract Node Completed data
-        if (faosEvent.type === 'NodeCompleted' && faosEvent.payload?.results) {
-          const results = faosEvent.payload.results;
-          // Analyze Node
-          if (faosEvent.payload.node_id === 'node3' && results.analysis_reports) {
-            setAnalysisReports(results.analysis_reports);
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectDelay = 1000;
+    let unmounted = false;
+
+    function connect() {
+      if (unmounted) return;
+      ws = new WebSocket('ws://localhost:8001/ws/events');
+
+      ws.onopen = () => {
+        console.log('Connected to FAOS EventBus');
+        setWsConnected(true);
+        reconnectDelay = 1000; // reset backoff on success
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const faosEvent: FAOSEvent = JSON.parse(event.data);
+          setEvents(prev => [...prev, faosEvent]);
+
+          if (faosEvent.type === 'TaskSubmitted') setTaskStatus('running');
+          if (faosEvent.type === 'TaskCompleted') setTaskStatus('completed');
+          if (faosEvent.type === 'TaskFailed') setTaskStatus('failed');
+
+          // Extract Node Completed data
+          if (faosEvent.type === 'NodeCompleted' && faosEvent.payload?.results) {
+            const results = faosEvent.payload.results;
+            // Analyze Node
+            if (faosEvent.payload.node_id === 'node3' && results.analysis_reports) {
+              setAnalysisReports(results.analysis_reports);
+            }
+            // Discuss Node
+            if (faosEvent.payload.node_id === 'node_discuss' && results.discussion) {
+              setDiscussion(results.discussion);
+            }
+            // Decision Node
+            if (faosEvent.payload.node_id === 'node_decision' && results.decision) {
+              setDecision({
+                trader: results.decision['Trader Strategy'],
+                pm: results.decision['Portfolio Manager Decision']
+              });
+            }
           }
-          // Discuss Node
-          if (faosEvent.payload.node_id === 'node_discuss' && results.discussion) {
-            setDiscussion(results.discussion);
-          }
-          // Decision Node
-          if (faosEvent.payload.node_id === 'node_decision' && results.decision) {
-            setDecision({
-              trader: results.decision['Trader Strategy'],
-              pm: results.decision['Portfolio Manager Decision']
-            });
-          }
+        } catch (err) {
+          console.error('Failed to parse event', err);
         }
-      } catch (err) {
-        console.error('Failed to parse event', err);
-      }
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from FAOS EventBus, reconnecting...');
+        setWsConnected(false);
+        if (!unmounted) {
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+            connect();
+          }, reconnectDelay);
+        }
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
+
+      wsRef.current = ws;
+    }
+
+    connect();
+
+    return () => {
+      unmounted = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws?.close();
     };
-    
-    ws.onclose = () => console.log('Disconnected from FAOS EventBus');
-    wsRef.current = ws;
-    return () => ws.close();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -276,11 +311,22 @@ function App() {
 
       {/* Sidebar (Event Trace) */}
       <div className="sidebar">
-        <div className="sidebar-header">System Event Trace</div>
+        <div className="sidebar-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          <span>System Event Trace</span>
+          <span style={{
+            fontSize: '0.7rem',
+            padding: '2px 8px',
+            borderRadius: '9999px',
+            background: wsConnected ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+            color: wsConnected ? '#34d399' : '#f87171'
+          }}>
+            {wsConnected ? '● Connected' : '○ Reconnecting...'}
+          </span>
+        </div>
         <div className="event-log">
           {events.length === 0 ? (
             <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2rem' }}>
-              Waiting for events...
+              {wsConnected ? 'Connected. Waiting for task...' : 'Connecting to backend...'}
             </div>
           ) : (
             events.map((evt) => (
