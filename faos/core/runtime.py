@@ -83,6 +83,7 @@ class TaskRuntime:
         self.capability_service.register_capability(CapabilityManifest(id="cap.fetch_data", name="FetchData", inputs=["symbol"]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.fetch_news", name="FetchNews", inputs=["symbol"]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.analyze", name="Analyze", inputs=[]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.discuss", name="Discussion", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
         
