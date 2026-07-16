@@ -62,8 +62,8 @@ class FetchNewsSkill(BaseSkill):
 
 
 class AnalyzeSkill(BaseSkill):
-    def __init__(self, reasoning_service: ReasoningService):
-        self.reasoning_service = reasoning_service
+    def __init__(self, analyze_service):
+        self.analyze_service = analyze_service
         
     @property
     def manifest(self) -> SkillManifest:
@@ -71,18 +71,19 @@ class AnalyzeSkill(BaseSkill):
             id="stock.analyze.reasoning",
             name="Reasoning Analyze Skill",
             capability="Analyze",
-            description="Uses ReasoningService to analyze stock"
+            description="Uses AnalyzeService to analyze stock from 4 different perspectives"
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
-        reasoning_req = ReasoningRequest(
+        from faos.services.analyze.models import AnalyzeRequest
+        analyze_req = AnalyzeRequest(
             task_id=request.task_id,
             context_data=request.context.provider_outputs
         )
-        response = await self.reasoning_service.analyze_context(reasoning_req)
+        response = await self.analyze_service.analyze(analyze_req)
         
-        request.context.add_result("analysis", response.insights)
-        return SkillResponse(status="success", output=response.insights)
+        request.context.add_result("analysis_reports", response.analyst_reports)
+        return SkillResponse(status="success", output=response.analyst_reports)
 
 
 class DecisionSkill(BaseSkill):
@@ -99,11 +100,9 @@ class DecisionSkill(BaseSkill):
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
-        analysis = request.context.results.get("analysis", {})
-        
         decision_req = DecisionRequest(
             task_id=request.task_id,
-            reasoning_results=analysis
+            reasoning_results=request.context.results
         )
         
         result = await self.decision_service.evaluate(decision_req)
@@ -154,3 +153,37 @@ class GenerateReportSkill(BaseSkill):
         
         preview = str(response.content)[:100] + "..." if isinstance(response.content, str) else "JSON output"
         return SkillResponse(status="success", output={"report_preview": preview})
+
+class DiscussSkill(BaseSkill):
+    def __init__(self, discussion_service):
+        self.discussion = discussion_service
+        
+    @property
+    def manifest(self) -> SkillManifest:
+        return SkillManifest(
+            id="stock.discuss",
+            name="Multi-Agent Discussion Skill",
+            capability="Discussion",
+            description="Orchestrates expert agents to form consensus"
+        )
+        
+    async def execute(self, request: SkillRequest) -> SkillResponse:
+        from faos.services.discussion.models import DiscussionRequest
+        
+        # Pull data from context to discuss
+        context_data = request.context.provider_outputs.copy()
+        context_data["analysis_reports"] = request.context.results.get("analysis_reports", {})
+        
+        disc_req = DiscussionRequest(
+            task_id=request.task_id,
+            context_data=context_data
+        )
+        
+        response = await self.discussion.discuss(disc_req)
+        
+        if response.status == "failed":
+            return SkillResponse(status="failed", error=response.error)
+            
+        request.context.add_result("discussion", response.model_dump())
+        
+        return SkillResponse(status="success", output={"consensus": response.consensus})

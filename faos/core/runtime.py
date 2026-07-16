@@ -49,12 +49,21 @@ class TaskRuntime:
         from faos.services.data_route.service import DataRouteService
         self.data_route = DataRouteService(self.provider_service)
         
-        self.decision_service = DecisionService()
+        self.decision_service = DecisionService(self.reasoning)
+        from faos.services.discussion.service import DiscussionService
+        self.discussion_service = DiscussionService(self.reasoning)
+        
+        from faos.services.analyze.service import AnalyzeService
+        self.analyze_service = AnalyzeService(self.reasoning)
         
         self.skill_service = SkillService()
         self.skill_service.register_skill(FetchDataSkill(data_route=self.data_route))
         self.skill_service.register_skill(FetchNewsSkill(data_route=self.data_route))
-        self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
+        self.skill_service.register_skill(AnalyzeSkill(analyze_service=self.analyze_service))
+        
+        from faos.services.skill.impl import DiscussSkill
+        self.skill_service.register_skill(DiscussSkill(discussion_service=self.discussion_service))
+        
         self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service))
         
         from faos.services.report.service import ReportService

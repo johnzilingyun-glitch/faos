@@ -1,10 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 class ReasoningRequest(BaseModel):
     task_id: str = Field(..., description="ID of the task this reasoning belongs to")
     context_data: Dict[str, Any] = Field(..., description="The data from ExecutionContext to analyze")
     prompt_template: str = Field(default="", description="The template to guide the reasoning")
+    prompt: Optional[str] = Field(default=None, description="System prompt to define agent persona")
 
 class ReasoningResponse(BaseModel):
     task_id: str

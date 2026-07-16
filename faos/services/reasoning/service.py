@@ -48,6 +48,9 @@ class ReasoningService:
             f"the target price is estimated at {insights['target_price']}."
         )
         
+        if request.prompt:
+            raw_response = f"[{request.prompt}]\n{raw_response}"
+            
         confidence = 0.85 if len(news) > 0 else 0.50
         
         return ReasoningResponse(

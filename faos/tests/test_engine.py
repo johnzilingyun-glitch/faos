@@ -30,17 +30,27 @@ async def test_engine_dag_execution():
     from faos.services.data_route.service import DataRouteService
     data_route = DataRouteService(provider_service)
 
-    decision_service = DecisionService()
+    from faos.services.discussion.service import DiscussionService
+    discussion_service = DiscussionService(reasoning_service)
+
+    from faos.services.analyze.service import AnalyzeService
+    analyze_service = AnalyzeService(reasoning_service)
     
-    skill_service = SkillService()
-    skill_service.register_skill(FetchDataSkill(data_route))
-    skill_service.register_skill(FetchNewsSkill(data_route))
-    skill_service.register_skill(AnalyzeSkill(reasoning_service))
-    skill_service.register_skill(DecisionSkill(decision_service))
+    from faos.services.decision.service import DecisionService
+    decision_service = DecisionService(reasoning_service)
     
     from faos.services.report.service import ReportService
     report_service = ReportService()
-    skill_service.register_skill(GenerateReportSkill(report_service))
+    
+    from faos.services.skill.impl import DiscussSkill
+    
+    skill_service = SkillService()
+    skill_service.register_skill(FetchDataSkill(data_route=data_route))
+    skill_service.register_skill(FetchNewsSkill(data_route=data_route))
+    skill_service.register_skill(AnalyzeSkill(analyze_service=analyze_service))
+    skill_service.register_skill(DiscussSkill(discussion_service=discussion_service))
+    skill_service.register_skill(DecisionSkill(decision_service=decision_service))
+    skill_service.register_skill(GenerateReportSkill(report_service=report_service))
 
     engine = ExecutionEngine(event_bus, contexts, skill_service=skill_service)
 
@@ -62,7 +72,8 @@ async def test_engine_dag_execution():
             PlanNode(id="node1", capability="FetchData", parameters={"symbol": "MSFT"}),
             PlanNode(id="node2", capability="FetchNews", parameters={"symbol": "MSFT"}),
             PlanNode(id="node3", capability="Analyze", dependencies=["node1", "node2"]),
-            PlanNode(id="node4", capability="Decision", dependencies=["node3"]),
+            PlanNode(id="node-discuss", capability="Discussion", dependencies=["node3"]),
+            PlanNode(id="node4", capability="Decision", dependencies=["node-discuss"]),
             PlanNode(id="node5", capability="GenerateReport", dependencies=["node4"])
         ]
     )
@@ -78,17 +89,19 @@ async def test_engine_dag_execution():
     # Wait for execution:
     # FetchData and FetchNews take 0.5s (parallel = 0.5s)
     # Analyze takes 1.0s
-    # Total ~2.0s. Let's wait 3.0s.
-    await asyncio.sleep(3.0)
+    # Total ~2.0s. Let's wait 8.0s.
+    await asyncio.sleep(8.0)
     await event_bus.stop()
 
     # Verify context changes
     context = contexts[task_id]
+    # 4. Verify results
     assert "quote" in context.provider_outputs
     assert "news" in context.provider_outputs
-    assert "analysis" in context.results
+    assert "analysis_reports" in context.results
+    assert "discussion" in context.results
     assert "decision" in context.results
-
+    
     assert context.provider_outputs["quote"]["symbol"] == "MSFT"
     assert context.results["decision"]["action"] in ["BUY", "SELL", "HOLD"]
 

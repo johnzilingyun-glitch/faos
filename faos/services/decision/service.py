@@ -1,44 +1,62 @@
 import logging
-import asyncio
 from faos.services.decision.models import DecisionRequest, DecisionResult
+from faos.services.decision.prompts import TRADER_PROMPT, PORTFOLIO_MANAGER_PROMPT
+from faos.services.reasoning.service import ReasoningService
+from faos.services.reasoning.models import ReasoningRequest
+import re
 
 logger = logging.getLogger(__name__)
 
 class DecisionService:
     """
-    Decision Service is the central decision-making hub.
-    It applies policies and strategies to reasoning results to produce final actionable decisions.
+    Decision Service acts as the Trader and Portfolio Manager.
+    It takes the Discussion Service output (Investment Plan + Risk Plan)
+    and formulates a strategy and makes a final decision.
     """
-    def __init__(self):
-        logger.info("DecisionService initialized")
+    def __init__(self, reasoning_service: ReasoningService):
+        self.reasoning = reasoning_service
+        logger.info("DecisionService initialized with Trader and Portfolio Manager roles")
 
     async def evaluate(self, request: DecisionRequest) -> DecisionResult:
-        logger.info(f"DecisionService evaluating Task {request.task_id} with policy {request.policy}")
-        await asyncio.sleep(0.5)
+        logger.info(f"DecisionService evaluating Task {request.task_id}")
         
-        # Simple Mock Rule Engine
-        reasoning = request.reasoning_results
+        # In this workflow, reasoning_results should contain the 'discussion' output
+        # which has the consensus string (Investment Plan + Risk Plan)
+        discussion_consensus = request.reasoning_results.get("discussion", {}).get("consensus", "")
         
-        # Extract sentiment from reasoning
-        sentiment = reasoning.get("sentiment", 0.5)
+        # Step 1: Trader generates proposal
+        trader_req = ReasoningRequest(
+            task_id=request.task_id,
+            context_data={"consensus": discussion_consensus},
+            prompt=TRADER_PROMPT
+        )
+        trader_resp = await self.reasoning.analyze_context(trader_req)
+        trader_proposal = trader_resp.raw_response
         
+        # Step 2: Portfolio Manager makes final decision
+        pm_context = {
+            "consensus": discussion_consensus,
+            "trader_proposal": trader_proposal
+        }
+        pm_req = ReasoningRequest(
+            task_id=request.task_id,
+            context_data=pm_context,
+            prompt=PORTFOLIO_MANAGER_PROMPT
+        )
+        pm_resp = await self.reasoning.analyze_context(pm_req)
+        pm_decision = pm_resp.raw_response
+        
+        # Parse output for BUY/HOLD/SELL
         action = "HOLD"
-        confidence = 0.5
-        reason = "Neutral signals"
-        
-        if sentiment > 0.6:
+        if re.search(r'\bBUY\b', pm_decision, re.IGNORECASE):
             action = "BUY"
-            confidence = 0.8
-            reason = "Positive sentiment and strong reasoning indicators"
-        elif sentiment < 0.4:
+        elif re.search(r'\bSELL\b', pm_decision, re.IGNORECASE):
             action = "SELL"
-            confidence = 0.8
-            reason = "Negative sentiment and weak reasoning indicators"
             
         return DecisionResult(
             action=action,
-            confidence=confidence,
-            reason=reason,
-            risk="Medium",
-            strategy="Trend Following"
+            confidence=pm_resp.confidence,
+            reason=pm_decision,
+            risk="Analyzed by Risk Plan",
+            strategy=trader_proposal
         )

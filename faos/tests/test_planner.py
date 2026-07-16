@@ -21,6 +21,7 @@ async def test_planner_pipeline_generates_plan():
     capability_service.register_capability(CapabilityManifest(id="cap.fetch_data", name="FetchData", inputs=["symbol"]))
     capability_service.register_capability(CapabilityManifest(id="cap.fetch_news", name="FetchNews", inputs=["symbol"]))
     capability_service.register_capability(CapabilityManifest(id="cap.analyze", name="Analyze", inputs=[]))
+    capability_service.register_capability(CapabilityManifest(id="cap.discuss", name="Discussion", inputs=[]))
     capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
     capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
 
@@ -61,7 +62,7 @@ async def test_planner_pipeline_generates_plan():
     assert plan_event.payload["task_id"] == "task-planner-123"
     
     plan_data = plan_event.payload["plan"]
-    assert len(plan_data["nodes"]) == 5
+    assert len(plan_data["nodes"]) == 6
     
     # Check that TSLA symbol was extracted and injected
     node1 = next(n for n in plan_data["nodes"] if n["id"] == "node1")
