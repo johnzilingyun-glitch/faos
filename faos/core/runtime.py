@@ -35,8 +35,14 @@ class TaskRuntime:
         self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
         self.skill_service.register_skill(GenerateReportSkill())
         
+        from faos.services.workflow.service import WorkflowService
+        from faos.services.workflow.standard import get_analyze_stock_workflow
+        
+        self.workflow_service = WorkflowService()
+        self.workflow_service.register_workflow(get_analyze_stock_workflow())
+        
         # Instantiate Planner and Execution Engine
-        self.planner = PlannerPipeline(self.event_bus)
+        self.planner = PlannerPipeline(self.event_bus, workflow_service=self.workflow_service)
         self.engine = ExecutionEngine(self.event_bus, self.contexts, skill_service=self.skill_service)
         
         self._running = False

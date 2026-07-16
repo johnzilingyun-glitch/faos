@@ -4,10 +4,18 @@ from faos.core.event_bus import EventBus
 from faos.core.models import Event
 from faos.execution.planner import PlannerPipeline
 
+from faos.services.workflow.service import WorkflowService
+from faos.services.workflow.standard import get_analyze_stock_workflow
+
 @pytest.mark.asyncio
 async def test_planner_pipeline_generates_plan():
     event_bus = EventBus()
     event_bus.start()
+    
+    workflow_service = WorkflowService()
+    workflow_service.register_workflow(get_analyze_stock_workflow())
+
+    planner = PlannerPipeline(event_bus, workflow_service=workflow_service)
     
     # We need a way to capture events published by the planner
     captured_events = []
@@ -17,17 +25,14 @@ async def test_planner_pipeline_generates_plan():
         
     event_bus.subscribe("ExecutionPlanGenerated", capture_handler)
     
-    planner = PlannerPipeline(event_bus)
-    
-    # Simulate a task submission
-    test_task_id = "test-task-123"
-    task_event = Event(
+    # Simulate a TaskSubmitted event with intent that matches regex
+    task_submitted_event = Event(
         type="TaskSubmitted",
         source="Test",
-        payload={"task_id": test_task_id, "intent": "Analyze AAPL"}
+        payload={"task_id": "task-planner-123", "intent": "Analyze TSLA"}
     )
     
-    await event_bus.publish(task_event)
+    await event_bus.publish(task_submitted_event)
     
     # Allow time for event loop to process
     await asyncio.sleep(0.1)
@@ -40,10 +45,14 @@ async def test_planner_pipeline_generates_plan():
     plan_event = captured_events[0]
     
     assert plan_event.type == "ExecutionPlanGenerated"
-    assert plan_event.payload["task_id"] == test_task_id
+    assert plan_event.payload["task_id"] == "task-planner-123"
     
     plan_data = plan_event.payload["plan"]
     assert len(plan_data["nodes"]) == 4
+    
+    # Check that TSLA symbol was extracted and injected
+    node1 = next(n for n in plan_data["nodes"] if n["id"] == "node1")
+    assert node1["parameters"].get("symbol") == "TSLA"
     
     # Check node 3 dependencies
     node3 = next(n for n in plan_data["nodes"] if n["id"] == "node3")

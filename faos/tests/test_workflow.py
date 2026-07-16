@@ -1,0 +1,36 @@
+import pytest
+from faos.services.workflow.models import WorkflowDefinition, WorkflowNodeDef
+from faos.services.workflow.service import WorkflowService
+from faos.services.workflow.standard import get_analyze_stock_workflow
+
+def test_workflow_service_registration():
+    service = WorkflowService()
+    workflow = get_analyze_stock_workflow()
+    
+    # Register workflow
+    service.register_workflow(workflow)
+    
+    # Verify retrieval
+    retrieved = service.get_workflow("AnalyzeStockWorkflow")
+    assert retrieved is not None
+    assert retrieved.name == "Analyze Stock Workflow"
+    assert len(retrieved.nodes) == 4
+    
+    # Verify non-existent
+    assert service.get_workflow("NonExistent") is None
+
+def test_standard_analyze_workflow():
+    workflow = get_analyze_stock_workflow()
+    assert workflow.id == "AnalyzeStockWorkflow"
+    
+    # Check nodes
+    node_ids = [n.id for n in workflow.nodes]
+    assert "node1" in node_ids
+    assert "node2" in node_ids
+    assert "node3" in node_ids
+    assert "node4" in node_ids
+    
+    # Check dependencies
+    node3 = next(n for n in workflow.nodes if n.id == "node3")
+    assert "node1" in node3.dependencies
+    assert "node2" in node3.dependencies
