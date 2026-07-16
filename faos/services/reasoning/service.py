@@ -134,7 +134,7 @@ class ReasoningService:
 
     async def _call_openai_compatible(self, request: ReasoningRequest, provider: str) -> ReasoningResponse:
         """Call DeepSeek or OpenRouter API using OpenAI SDK."""
-        model = request.model or ("deepseek-chat" if provider == "deepseek" else "openai/gpt-4o-mini")
+        model = request.model or ("deepseek-v4-flash" if provider == "deepseek" else "openai/gpt-4o-mini")
         api_key = ""
         base_url = "https://api.deepseek.com" if provider == "deepseek" else "https://openrouter.ai/api/v1"
 

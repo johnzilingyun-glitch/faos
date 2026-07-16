@@ -43,6 +43,20 @@ const getNodeName = (nodeId: string) => {
   return map[nodeId] || nodeId;
 };
 
+const MODEL_OPTIONS: Record<string, string[]> = {
+  mock: ['mock-model'],
+  gemini: ['gemini-3.5-flash', 'gemini-3.5-pro', 'gemini-2.0-flash'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  openrouter: [
+    'tencent/hy3:free',
+    'openai/gpt-4o',
+    'anthropic/claude-3.5-sonnet',
+    'meta-llama/llama-3.3-70b-instruct',
+    'google/gemini-3.5-pro'
+  ]
+};
+
+
 function App() {
   const [intent, setIntent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -217,9 +231,7 @@ function App() {
                 <select value={llmProvider} onChange={(e) => {
                   const val = e.target.value;
                   setLlmProvider(val);
-                  if (val === 'deepseek') setLlmModel('deepseek-chat');
-                  else if (val === 'openrouter') setLlmModel('openai/gpt-4o-mini');
-                  else if (val === 'gemini') setLlmModel('gemini-2.0-flash');
+                  setLlmModel(MODEL_OPTIONS[val]?.[0] || '');
                 }}>
                   <option value="mock">Mock</option>
                   <option value="gemini">Gemini</option>
@@ -229,12 +241,12 @@ function App() {
               </div>
               <div className="config-row">
                 <label>Model:</label>
-                <input 
-                  type="text" 
-                  value={llmModel} 
-                  onChange={(e) => setLlmModel(e.target.value)} 
-                  placeholder="e.g. gemini-2.0-flash" 
-                />
+                <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)}>
+                  {(MODEL_OPTIONS[llmProvider] || []).map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                  {/* Allow custom models for openrouter if needed, but official list is requested */}
+                </select>
               </div>
               <div className="config-row">
                 <label>API Key:</label>
