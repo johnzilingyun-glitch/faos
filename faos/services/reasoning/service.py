@@ -35,22 +35,20 @@ class ReasoningService:
         if news:
             avg_sentiment = sum(n.get("sentiment", 0.0) for n in news) / len(news)
             
-        recommendation = "BUY" if avg_sentiment > 0.5 else "HOLD"
-        confidence = 0.85 if len(news) > 0 else 0.50
-        
         insights = {
             "symbol": quote.get("symbol", "UNKNOWN"),
             "price": quote.get("price", 0.0),
             "sentiment": avg_sentiment,
-            "recommendation": recommendation,
-            "target_price": quote.get("price", 0.0) * 1.1 if recommendation == "BUY" else quote.get("price", 0.0),
+            "target_price": quote.get("price", 0.0) * 1.1 if avg_sentiment > 0.5 else quote.get("price", 0.0),
         }
         
         raw_response = (
             f"Based on the analysis of {insights['symbol']} at price {insights['price']}, "
-            f"and a market sentiment of {avg_sentiment:.2f}, the recommendation is {recommendation} "
-            f"with a target price of {insights['target_price']}."
+            f"and a market sentiment of {avg_sentiment:.2f}, "
+            f"the target price is estimated at {insights['target_price']}."
         )
+        
+        confidence = 0.85 if len(news) > 0 else 0.50
         
         return ReasoningResponse(
             task_id=request.task_id,

@@ -23,9 +23,9 @@ async def test_reasoning_service_analyze_context_with_news():
     assert response.task_id == "test-task-1"
     assert response.insights["symbol"] == "AAPL"
     assert response.insights["sentiment"] == 0.7  # (0.8 + 0.6) / 2
-    assert response.insights["recommendation"] == "BUY"
+    assert "recommendation" not in response.insights
     assert response.confidence == 0.85
-    assert "BUY" in response.raw_response
+    assert "estimated" in response.raw_response
 
 @pytest.mark.asyncio
 async def test_reasoning_service_analyze_context_without_news():
@@ -43,6 +43,6 @@ async def test_reasoning_service_analyze_context_without_news():
     assert response.task_id == "test-task-2"
     assert response.insights["symbol"] == "TSLA"
     assert response.insights["sentiment"] == 0.0
-    assert response.insights["recommendation"] == "HOLD"
+    assert "recommendation" not in response.insights
     assert response.confidence == 0.50
-    assert "HOLD" in response.raw_response
+    assert "estimated" in response.raw_response

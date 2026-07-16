@@ -48,7 +48,7 @@ async def test_planner_pipeline_generates_plan():
     assert plan_event.payload["task_id"] == "task-planner-123"
     
     plan_data = plan_event.payload["plan"]
-    assert len(plan_data["nodes"]) == 4
+    assert len(plan_data["nodes"]) == 5
     
     # Check that TSLA symbol was extracted and injected
     node1 = next(n for n in plan_data["nodes"] if n["id"] == "node1")

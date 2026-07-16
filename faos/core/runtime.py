@@ -27,18 +27,22 @@ class TaskRuntime:
         self.reasoning = ReasoningService()
         
         from faos.services.skill.service import SkillService
-        from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill
+        from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill, DecisionSkill
         from faos.services.provider.service import ProviderService
         from faos.services.provider.impl import MockQuoteProvider, MockNewsProvider
+        from faos.services.decision.service import DecisionService
         
         self.provider_service = ProviderService()
         self.provider_service.register_provider(MockQuoteProvider())
         self.provider_service.register_provider(MockNewsProvider())
         
+        self.decision_service = DecisionService()
+        
         self.skill_service = SkillService()
         self.skill_service.register_skill(FetchDataSkill(provider_service=self.provider_service))
         self.skill_service.register_skill(FetchNewsSkill(provider_service=self.provider_service))
         self.skill_service.register_skill(AnalyzeSkill(reasoning_service=self.reasoning))
+        self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service))
         self.skill_service.register_skill(GenerateReportSkill())
         
         from faos.services.workflow.service import WorkflowService

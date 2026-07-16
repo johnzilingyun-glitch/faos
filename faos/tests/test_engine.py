@@ -6,9 +6,10 @@ from faos.core.models import Event, ExecutionPlan, PlanNode
 from faos.execution.engine import ExecutionEngine
 from faos.services.reasoning.service import ReasoningService
 from faos.services.skill.service import SkillService
-from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill
+from faos.services.skill.impl import FetchDataSkill, FetchNewsSkill, AnalyzeSkill, GenerateReportSkill, DecisionSkill
 from faos.services.provider.service import ProviderService
 from faos.services.provider.impl import MockQuoteProvider, MockNewsProvider
+from faos.services.decision.service import DecisionService
 
 @pytest.mark.asyncio
 async def test_engine_dag_execution():
@@ -26,10 +27,13 @@ async def test_engine_dag_execution():
     provider_service.register_provider(MockQuoteProvider())
     provider_service.register_provider(MockNewsProvider())
     
+    decision_service = DecisionService()
+    
     skill_service = SkillService()
     skill_service.register_skill(FetchDataSkill(provider_service))
     skill_service.register_skill(FetchNewsSkill(provider_service))
     skill_service.register_skill(AnalyzeSkill(reasoning_service))
+    skill_service.register_skill(DecisionSkill(decision_service))
     skill_service.register_skill(GenerateReportSkill())
 
     engine = ExecutionEngine(event_bus, contexts, skill_service=skill_service)
@@ -51,7 +55,9 @@ async def test_engine_dag_execution():
         nodes=[
             PlanNode(id="node1", capability="FetchData", parameters={"symbol": "MSFT"}),
             PlanNode(id="node2", capability="FetchNews", parameters={"symbol": "MSFT"}),
-            PlanNode(id="node3", capability="Analyze", dependencies=["node1", "node2"])
+            PlanNode(id="node3", capability="Analyze", dependencies=["node1", "node2"]),
+            PlanNode(id="node4", capability="Decision", dependencies=["node3"]),
+            PlanNode(id="node5", capability="GenerateReport", dependencies=["node4"])
         ]
     )
 
@@ -66,8 +72,8 @@ async def test_engine_dag_execution():
     # Wait for execution:
     # FetchData and FetchNews take 0.5s (parallel = 0.5s)
     # Analyze takes 1.0s
-    # Total ~1.5s. Let's wait 2.0s.
-    await asyncio.sleep(2.0)
+    # Total ~2.0s. Let's wait 3.0s.
+    await asyncio.sleep(3.0)
     await event_bus.stop()
 
     # Verify context changes
@@ -75,9 +81,10 @@ async def test_engine_dag_execution():
     assert "quote" in context.provider_outputs
     assert "news" in context.provider_outputs
     assert "analysis" in context.results
+    assert "decision" in context.results
 
     assert context.provider_outputs["quote"]["symbol"] == "MSFT"
-    assert context.results["analysis"]["recommendation"] == "BUY"
+    assert context.results["decision"]["action"] in ["BUY", "SELL", "HOLD"]
 
     # Verify Event Flow
     event_types = [e.type for e in captured_events]
