@@ -8,6 +8,8 @@ from faos.services.workflow.service import WorkflowService
 from faos.services.workflow.standard import get_analyze_stock_workflow
 from faos.services.capability.service import CapabilityService
 from faos.services.capability.models import CapabilityManifest
+from faos.services.reasoning.service import ReasoningService
+from faos.services.reasoning.models import ReasoningRequest, ReasoningResponse
 
 @pytest.mark.asyncio
 async def test_planner_pipeline_generates_plan():
@@ -25,10 +27,21 @@ async def test_planner_pipeline_generates_plan():
     capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
     capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
 
+    class MockReasoningService(ReasoningService):
+        async def analyze_context(self, request: ReasoningRequest) -> ReasoningResponse:
+            return ReasoningResponse(
+                task_id=request.task_id,
+                insights={},
+                confidence=1.0,
+                raw_response='{"workflow_id": "AnalyzeStockWorkflow", "parameters": {"symbol": "TSLA"}, "reasoning": "Test"}',
+                usage={}
+            )
+            
     planner = PlannerPipeline(
         event_bus, 
         workflow_service=workflow_service,
-        capability_service=capability_service
+        capability_service=capability_service,
+        reasoning_service=MockReasoningService()
     )
     
     # We need a way to capture events published by the planner
@@ -62,7 +75,7 @@ async def test_planner_pipeline_generates_plan():
     assert plan_event.payload["task_id"] == "task-planner-123"
     
     plan_data = plan_event.payload["plan"]
-    assert len(plan_data["nodes"]) == 6
+    assert len(plan_data["nodes"]) == 7
     
     # Check that TSLA symbol was extracted and injected
     node1 = next(n for n in plan_data["nodes"] if n["id"] == "node1")

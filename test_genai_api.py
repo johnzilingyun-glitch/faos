@@ -3,6 +3,9 @@ import asyncio
 from google import genai
 from google.genai import types
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_genai():
     # Use mock key or public if required, but here we just want to see if the interface is correct
     client = genai.Client(api_key="dummy")

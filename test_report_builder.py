@@ -2,6 +2,9 @@ import asyncio
 from faos.services.report.service import ReportService
 from faos.services.report.models import ReportRequest
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_report():
     service = ReportService()
     

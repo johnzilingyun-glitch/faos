@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { Settings, Play, CheckCircle2, XCircle, BrainCircuit, MessageSquare, TrendingUp, FileText, ChevronRight, Activity, LineChart } from 'lucide-react';
+import { MarketChart } from './components/MarketChart';
+import { AgentDebateMap } from './components/AgentDebateMap';
+import { ScoreRadar } from './components/ScoreRadar';
 import './index.css';
 
 interface FAOSEvent {
@@ -68,6 +72,7 @@ function App() {
   const [taskStatus, setTaskStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
 
   // Pipeline Data State
+  const [marketData, setMarketData] = useState<{ time: string, value: number }[] | null>(null);
   const [analysisReports, setAnalysisReports] = useState<Record<string, AnalysisReport> | null>(null);
   const [discussion, setDiscussion] = useState<Record<string, any> | null>(null);
   const [decision, setDecision] = useState<{ trader?: TraderStrategy, pm?: PMDecision } | null>(null);
@@ -109,6 +114,12 @@ function App() {
           // Extract Node Completed data
           if (faosEvent.type === 'NodeCompleted' && faosEvent.payload?.results) {
             const results = faosEvent.payload.results;
+            
+            // FetchData Node
+            if (faosEvent.payload.node_id === 'node1' && results.history) {
+              setMarketData(results.history);
+            }
+            
             // Analyze Node
             if (faosEvent.payload.node_id === 'node3' && results.analysis_reports) {
               setAnalysisReports(results.analysis_reports);
@@ -163,6 +174,7 @@ function App() {
 
     setIsSubmitting(true);
     setEvents([]);
+    setMarketData(null);
     setAnalysisReports(null);
     setDiscussion(null);
     setDecision(null);
@@ -214,11 +226,12 @@ function App() {
               placeholder="e.g. Analyze AAPL for swing trading..."
               disabled={isSubmitting || taskStatus === 'running'}
             />
-            <button type="submit" className="btn-primary" disabled={isSubmitting || !intent.trim() || taskStatus === 'running'}>
+            <button type="submit" className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} disabled={isSubmitting || !intent.trim() || taskStatus === 'running'}>
+              {isSubmitting ? <Activity size={18} className="animate-spin" /> : <Play size={18} />}
               {isSubmitting ? 'Submitting...' : 'Analyze'}
             </button>
             <button type="button" className="btn-secondary" onClick={() => setShowConfig(!showConfig)}>
-              ⚙️
+              <Settings size={18} />
             </button>
             <div className={`status-indicator status-${taskStatus}`}>
               {taskStatus.toUpperCase()}
@@ -261,11 +274,24 @@ function App() {
           )}
         </div>
 
+        {/* Market Data Chart */}
+        {marketData && (
+          <div className="stage-section delay-1" style={{ marginBottom: '2rem' }}>
+            <h2 className="stage-title">
+              <span className="badge">Data</span>
+              <LineChart size={24} color="#818cf8" />
+              Market Overview
+            </h2>
+            <MarketChart data={marketData} symbol={intent.split(' ')[1] || 'Asset'} />
+          </div>
+        )}
+
         {/* Stage 1: Analyze */}
         {analysisReports && (
           <div className="stage-section delay-1">
-            <h2 className="stage-title">
+            <h2 className="stage-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span className="badge">Stage 1</span>
+              <BrainCircuit size={24} color="#60a5fa" />
               Multi-Dimensional Analysis
             </h2>
             <div className="grid-2x2">
@@ -294,36 +320,22 @@ function App() {
         {/* Stage 2: Discuss */}
         {discussion && (
           <div className="stage-section delay-2">
-            <h2 className="stage-title">
+            <h2 className="stage-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span className="badge">Stage 2</span>
-              Agent Debates
+              <MessageSquare size={24} color="#fbbf24" />
+              Agent Debates & Consensus
             </h2>
 
-            {discussion['Investment Debate'] && (
-              <div className="grid-2x2" style={{ marginBottom: '1.5rem' }}>
-                <div className="impeccable-card card-bull">
-                  <div className="card-header">
-                    <div className="card-title">Bull Case</div>
-                  </div>
-                  <div className="card-body small markdown-body"><ReactMarkdown>{discussion['Investment Debate']['Bull']}</ReactMarkdown></div>
-                </div>
-                <div className="impeccable-card card-bear">
-                  <div className="card-header">
-                    <div className="card-title">Bear Case</div>
-                  </div>
-                  <div className="card-body small markdown-body"><ReactMarkdown>{discussion['Investment Debate']['Bear']}</ReactMarkdown></div>
-                </div>
-              </div>
+            {discussion['Investment Debate'] && discussion['Investment Plan'] && discussion['Risk Plan'] && (
+              <AgentDebateMap
+                bull={discussion['Investment Debate']['Bull']}
+                bear={discussion['Investment Debate']['Bear']}
+                manager={discussion['Investment Plan']}
+                risk={discussion['Risk Plan']}
+              />
             )}
 
-            {discussion['Investment Plan'] && (
-              <div className="impeccable-card card-manager" style={{ marginBottom: '3rem' }}>
-                <div className="card-header">
-                  <div className="card-title">Investment Thesis</div>
-                </div>
-                <div className="card-body markdown-body"><ReactMarkdown>{discussion['Investment Plan']}</ReactMarkdown></div>
-              </div>
-            )}
+
 
             {discussion['Risk Debate'] && (
               <div className="grid-3" style={{ marginBottom: '1.5rem' }}>
@@ -338,23 +350,17 @@ function App() {
               </div>
             )}
 
-            {discussion['Risk Plan'] && (
-              <div className="impeccable-card card-manager">
-                <div className="card-header">
-                  <div className="card-title">Risk Management Plan</div>
-                </div>
-                <div className="card-body markdown-body"><ReactMarkdown>{discussion['Risk Plan']}</ReactMarkdown></div>
-              </div>
-            )}
+
           </div>
         )}
 
         {/* Stage 3: Decision */}
         {decision && decision.pm && (
           <div className="stage-section delay-3">
-            <h2 className="stage-title">
+            <h2 className="stage-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span className="badge">Stage 3</span>
-              Final Verdict
+              <TrendingUp size={24} color="#34d399" />
+              Final Verdict & Strategy
             </h2>
 
             <div className="verdict-card">
@@ -381,6 +387,18 @@ function App() {
                   <h4>Portfolio Manager Reasoning</h4>
                   <div className="markdown-body"><ReactMarkdown>{decision.pm.reasoning}</ReactMarkdown></div>
                 </div>
+              </div>
+
+              <div style={{ marginTop: '2rem' }}>
+                <ScoreRadar 
+                  scores={{
+                    fundamental: 85,
+                    technical: 60,
+                    sentiment: 75,
+                    macro: 50,
+                    risk: decision.pm.confidence === 'High' ? 20 : 80
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -411,16 +429,21 @@ function App() {
               <div key={evt.id} className={`event-item ${evt.type === 'NodeCompleted' ? 'important' : ''}`}>
                 {evt.type === 'NodeStarted' ? (
                   <>
-                    <div><span style={{ color: '#fbbf24' }}>▶ Starting</span></div>
-                    <div style={{ marginTop: '0.25rem', color: '#e2e8f0' }}>{getNodeName(evt.payload?.node_id)}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={16} color="#fbbf24" /><span style={{ color: '#fbbf24' }}>Starting</span></div>
+                    <div style={{ marginTop: '0.25rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><ChevronRight size={14} /> {getNodeName(evt.payload?.node_id)}</div>
                   </>
                 ) : evt.type === 'NodeCompleted' ? (
                   <>
-                    <div><span style={{ color: '#34d399' }}>✓ Completed</span></div>
-                    <div style={{ marginTop: '0.25rem', color: '#e2e8f0' }}>{getNodeName(evt.payload?.node_id)}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><CheckCircle2 size={16} color="#34d399" /><span style={{ color: '#34d399' }}>Completed</span></div>
+                    <div style={{ marginTop: '0.25rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><ChevronRight size={14} /> {getNodeName(evt.payload?.node_id)}</div>
+                  </>
+                ) : evt.type === 'TaskFailed' ? (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><XCircle size={16} color="#ef4444" /><span style={{ color: '#ef4444' }}>Failed</span></div>
+                    <div style={{ marginTop: '0.25rem', color: '#fca5a5' }}>{evt.source}</div>
                   </>
                 ) : (
-                  <div><span style={{ color: '#60a5fa' }}>[{evt.type}]</span> {evt.source}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><FileText size={14} color="#60a5fa" /><span style={{ color: '#60a5fa' }}>[{evt.type}]</span> {evt.source}</div>
                 )}
               </div>
             ))

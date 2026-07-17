@@ -109,19 +109,24 @@ class TaskRuntime:
         
         from faos.services.reflection.service import ReflectionService
         from faos.services.skill.impl import ReflectionSkill
+        from faos.services.skill.backtest_skill import BacktestInitSkill, BacktestLoopSkill
+        
         self.reflection_service = ReflectionService(self.reasoning)
         self.skill_service.register_skill(ReflectionSkill(reflection_service=self.reflection_service))
+        self.skill_service.register_skill(BacktestInitSkill(event_bus=self.event_bus))
+        self.skill_service.register_skill(BacktestLoopSkill(event_bus=self.event_bus))
         
         from faos.services.report.service import ReportService
         self.report_service = ReportService()
         self.skill_service.register_skill(GenerateReportSkill(report_service=self.report_service))
         
         from faos.services.workflow.service import WorkflowService
-        from faos.services.workflow.standard import get_analyze_stock_workflow, get_news_summary_workflow
+        from faos.services.workflow.standard import get_analyze_stock_workflow, get_news_summary_workflow, get_backtest_workflow
         
         self.workflow_service = WorkflowService()
         self.workflow_service.register_workflow(get_analyze_stock_workflow())
         self.workflow_service.register_workflow(get_news_summary_workflow())
+        self.workflow_service.register_workflow(get_backtest_workflow())
         
         from faos.services.capability.service import CapabilityService
         from faos.services.capability.models import CapabilityManifest
@@ -134,6 +139,8 @@ class TaskRuntime:
         self.capability_service.register_capability(CapabilityManifest(id="cap.decision", name="Decision", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.reflection", name="Reflection", inputs=[]))
         self.capability_service.register_capability(CapabilityManifest(id="cap.report", name="GenerateReport", inputs=[]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.init_backtest", name="InitBacktest", inputs=[]))
+        self.capability_service.register_capability(CapabilityManifest(id="cap.run_backtest_loop", name="RunBacktestLoop", inputs=[]))
         
         # Instantiate Planner and Execution Engine
         self.planner = PlannerPipeline(
@@ -178,7 +185,11 @@ class TaskRuntime:
         event = Event(
             type="TaskSubmitted",
             source="TaskRuntime",
-            payload={"task_id": task.id, "intent": intent}
+            payload={
+                "task_id": task.id, 
+                "intent": intent,
+                "llm_config": context_vars.get("llm_config")
+            }
         )
         await self.event_bus.publish(event)
         return task

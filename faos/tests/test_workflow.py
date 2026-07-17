@@ -14,7 +14,7 @@ def test_workflow_service_registration():
     retrieved = service.get_workflow("AnalyzeStockWorkflow")
     assert retrieved is not None
     assert retrieved.name == "Analyze Stock Workflow"
-    assert len(retrieved.nodes) == 6
+    assert len(retrieved.nodes) == 7
     
     # Verify non-existent
     assert service.get_workflow("NonExistent") is None
@@ -31,6 +31,7 @@ def test_standard_analyze_workflow():
     assert "node_discuss" in node_ids
     assert "node_decision" in node_ids
     assert "node4" in node_ids
+    assert "node_reflection" in node_ids
     
     # Check dependencies
     node3 = next(n for n in workflow.nodes if n.id == "node3")
@@ -43,5 +44,8 @@ def test_standard_analyze_workflow():
     node_decision = next(n for n in workflow.nodes if n.id == "node_decision")
     assert "node_discuss" in node_decision.dependencies
     
+    node_reflection = next(n for n in workflow.nodes if n.id == "node_reflection")
+    assert "node_decision" in node_reflection.dependencies
+    
     node4 = next(n for n in workflow.nodes if n.id == "node4")
-    assert "node_decision" in node4.dependencies
+    assert "node_reflection" in node4.dependencies

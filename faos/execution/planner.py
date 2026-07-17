@@ -22,6 +22,7 @@ class PlannerPipeline:
     async def _handle_task_submitted(self, event: Event):
         task_id = event.payload.get("task_id")
         intent = event.payload.get("intent", "")
+        llm_config = event.payload.get("llm_config")
         
         logger.info(f"Planner processing Task {task_id} with intent: {intent}")
         
@@ -42,6 +43,8 @@ class PlannerPipeline:
             "You are the AI Planner (Orchestrator) for the FAOS Agentic System.\n"
             "Your job is to parse the user's intent, select the most appropriate Workflow ID, "
             "and extract required parameters.\n"
+            "CRITICAL: For the 'symbol' parameter, you MUST output a standard Yahoo Finance ticker symbol. "
+            "If the user provides a company name (e.g. 'Apple', '药明康德', 'Tencent'), you must translate it to the correct ticker (e.g. 'AAPL', '603259.SS' or '2359.HK', '0700.HK').\n"
             "Respond strictly in valid JSON matching the following schema:\n"
             "{\n"
             '  "workflow_id": "string",\n'
@@ -59,7 +62,8 @@ class PlannerPipeline:
             task_id=task_id,
             prompt=system_prompt,
             context_data=context_data,
-            model="gemini-3.5-flash"  # Using fastest model for routing
+            model="gemini-3.5-flash",  # Using fastest model for routing
+            llm_config=llm_config
         )
         
         resp = await self.reasoning_service.analyze_context(req)

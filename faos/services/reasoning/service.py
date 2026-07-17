@@ -236,7 +236,23 @@ class ReasoningService:
         )
 
         if request.prompt:
-            raw_response = f"[{request.prompt[:80]}...]\n{raw_response}"
+            if "workflow_id" in request.prompt and "parameters" in request.prompt:
+                # Mock a planner JSON response
+                # Extract a possible symbol from the intent (context_data['intent'] or just default to NVDA to prove it works)
+                intent = context_data.get("intent", "")
+                words = intent.split()
+                # Simple heuristic: find an uppercase word for symbol, else NVDA
+                symbol = next((w for w in words if w.isupper() and len(w) <= 5), "NVDA")
+                if "aapl" in intent.lower(): symbol = "AAPL"
+                elif "tsla" in intent.lower(): symbol = "TSLA"
+                
+                raw_response = json.dumps({
+                    "workflow_id": "AnalyzeStockWorkflow",
+                    "parameters": {"symbol": symbol},
+                    "reasoning": f"Mock planner identified symbol {symbol} from intent."
+                })
+            else:
+                raw_response = f"[{request.prompt[:80]}...]\n{raw_response}"
 
         confidence = 0.85 if len(news) > 0 else 0.50
 

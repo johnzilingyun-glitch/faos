@@ -187,7 +187,27 @@ class DiscussSkill(BaseSkill):
         if response.status == "failed":
             return SkillResponse(status="failed", error=response.error)
             
-        request.context.add_result("discussion", response.model_dump())
+        # Map opinions to frontend expected structure
+        frontend_discussion = {
+            "Investment Debate": {},
+            "Investment Plan": "",
+            "Risk Debate": {},
+            "Risk Plan": ""
+        }
+        
+        for op in response.opinions:
+            if op.name == "Bull Researcher":
+                frontend_discussion["Investment Debate"]["Bull"] = op.opinion
+            elif op.name == "Bear Researcher":
+                frontend_discussion["Investment Debate"]["Bear"] = op.opinion
+            elif op.name == "Research Manager":
+                frontend_discussion["Investment Plan"] = op.opinion
+            elif op.name == "Chief Risk Officer":
+                frontend_discussion["Risk Plan"] = op.opinion
+            elif "Risk Debator" in op.name:
+                frontend_discussion["Risk Debate"][op.name] = op.opinion
+                
+        request.context.add_result("discussion", frontend_discussion)
         
         return SkillResponse(status="success", output={"consensus": response.consensus})
 

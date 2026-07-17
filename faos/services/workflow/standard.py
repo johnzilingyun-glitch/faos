@@ -57,3 +57,26 @@ def get_news_summary_workflow() -> WorkflowDefinition:
             )
         ]
     )
+
+def get_backtest_workflow() -> WorkflowDefinition:
+    """
+    Standard Workflow for running historical backtests on a financial asset.
+    """
+    return WorkflowDefinition(
+        id="BacktestWorkflow",
+        name="Backtest Workflow",
+        description="Run historical backtests on a stock to evaluate trading performance. Good for 'backtest' queries.",
+        nodes=[
+            WorkflowNodeDef(id="init_backtest", capability="InitBacktest"),
+            WorkflowNodeDef(
+                id="run_backtest_loop",
+                capability="RunBacktestLoop",
+                dependencies=["init_backtest"]
+            ),
+            WorkflowNodeDef(
+                id="generate_report",
+                capability="GenerateReport",
+                dependencies=["run_backtest_loop"]
+            )
+        ]
+    )
