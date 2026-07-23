@@ -1228,14 +1228,20 @@ function App() {
           </div>
         )}
 
+        {/* Bottom spacer so scrollable content clears the fixed input bar */}
+        {phase === 'analysis' && <div style={{ height: '6rem' }} />}
+
         {/* Floating Post-Report Follow-up Chat Bar */}
         {phase === 'analysis' && (
           <div className="floating-followup-container" style={{
-            position: 'sticky',
+            position: 'fixed',
             bottom: '1.5rem',
-            width: '100%',
+            left: 'calc((100vw - 320px) / 2)',
+            transform: 'translateX(-50%)',
+            width: 'min(1400px, calc(100vw - 320px))',
+            padding: '0 4rem',
+            boxSizing: 'border-box',
             zIndex: 100,
-            marginTop: '2rem',
             display: 'flex',
             flexDirection: 'column',
             gap: '0.75rem'
