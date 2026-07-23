@@ -38,8 +38,10 @@ class DiscussionService:
             opinions.extend(investment_opinions)
             
             # Stage 2: Research Manager Synthesizes Investment Plan
-            investment_context = request.context_data.copy()
-            investment_context["debate"] = "\n".join([o.opinion for o in investment_opinions])
+            # Research Manager does not get raw data, only reads the debate
+            investment_context = {
+                "debate": "\n".join([o.opinion for o in investment_opinions])
+            }
             
             research_manager_req = ReasoningRequest(
                 task_id=request.task_id,

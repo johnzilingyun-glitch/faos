@@ -58,6 +58,25 @@ class YFinanceQuoteProvider(BaseProvider):
         
         try:
             ticker = yf.Ticker(symbol)
+            
+            # Helper to check if ticker is valid
+            def is_valid_ticker(t):
+                try:
+                    return t.info.get("currentPrice") is not None or t.info.get("regularMarketPrice") is not None or t.info.get("previousClose") is not None
+                except:
+                    return False
+
+            if not is_valid_ticker(ticker):
+                # Fallback: strip Reuters/Bloomberg suffixes for US stocks
+                if symbol.endswith(('.O', '.N', '.US')):
+                    fallback_symbol = symbol.rsplit('.', 1)[0]
+                    logger.warning(f"Ticker {symbol} not found. Trying fallback: {fallback_symbol}")
+                    ticker = yf.Ticker(fallback_symbol)
+                    if not is_valid_ticker(ticker):
+                        raise Exception(f"Ticker {fallback_symbol} also not found.")
+                else:
+                    raise Exception(f"Ticker {symbol} not found or no price data.")
+                    
             info = ticker.info
             
             # Try to get the most relevant price field
@@ -119,19 +138,19 @@ class YFinanceQuoteProvider(BaseProvider):
             
             # Fetch Alternative Data
             analyst_recommendations = None
-            rec = ticker.recommendations
-            if rec is not None and not rec.empty:
-                try:
-                    analyst_recommendations = rec.iloc[0].to_dict()
-                except:
-                    pass
+            try:
+                rec = ticker.recommendations
+                if rec is not None and not rec.empty:
+                    analyst_recommendations = rec.reset_index().to_dict(orient="records") if 'period' not in rec.columns else rec.to_dict(orient="records")
+            except:
+                pass
 
             # Fetch Estimates
             earnings_estimate = None
             try:
                 est = getattr(ticker, "earnings_estimate", None)
                 if est is not None and not est.empty:
-                    earnings_estimate = est.to_dict()
+                    earnings_estimate = est.reset_index().to_dict(orient="records")
             except:
                 pass
 
@@ -139,7 +158,7 @@ class YFinanceQuoteProvider(BaseProvider):
             try:
                 est = getattr(ticker, "revenue_estimate", None)
                 if est is not None and not est.empty:
-                    revenue_estimate = est.to_dict()
+                    revenue_estimate = est.reset_index().to_dict(orient="records")
             except:
                 pass
             

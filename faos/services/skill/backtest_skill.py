@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class BacktestInitSkill(BaseSkill):
     def __init__(self, event_bus):
-        super().__init__(event_bus, "Backtest Init Skill", "cap.init_backtest")
+        super().__init__()
+        self.event_bus = event_bus
         
     @property
     def manifest(self):
@@ -37,7 +38,8 @@ class BacktestInitSkill(BaseSkill):
 
 class BacktestLoopSkill(BaseSkill):
     def __init__(self, event_bus):
-        super().__init__(event_bus, "Backtest Loop Skill", "cap.run_backtest_loop")
+        super().__init__()
+        self.event_bus = event_bus
         
     @property
     def manifest(self):

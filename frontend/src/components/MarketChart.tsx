@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
+import { createChart, ColorType, AreaSeries } from 'lightweight-charts';
 
 interface MarketChartProps {
   symbol?: string;
@@ -60,11 +60,9 @@ export const MarketChart: React.FC<MarketChartProps> = (props) => {
       },
     });
 
-    const newSeries = chart.addAreaSeries({
-      lineColor,
-      topColor: areaTopColor,
-      bottomColor: areaBottomColor,
-    });
+    const newSeries = typeof (chart as any).addAreaSeries === 'function'
+      ? (chart as any).addAreaSeries({ lineColor, topColor: areaTopColor, bottomColor: areaBottomColor })
+      : chart.addSeries(AreaSeries, { lineColor, topColor: areaTopColor, bottomColor: areaBottomColor });
 
     if (data && data.length > 0) {
       newSeries.setData(data);

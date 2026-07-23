@@ -31,7 +31,7 @@ function Kill-Port {
     }
 }
 
-Kill-Port -Port 8001
-Kill-Port -Port 5173
+Kill-Port -Port 8088
+Kill-Port -Port 3000
 
 Write-Host "All FAOS services stopped successfully." -ForegroundColor Green

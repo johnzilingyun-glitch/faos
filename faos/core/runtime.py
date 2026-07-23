@@ -80,8 +80,11 @@ class TaskRuntime:
         
         # Register real providers (Priority 100)
         from faos.services.provider.yfinance_impl import YFinanceQuoteProvider, YFinanceNewsProvider
+        from faos.services.provider.websearch_impl import WebSearchProvider
+        
         self.provider_service.register_provider(YFinanceQuoteProvider())
         self.provider_service.register_provider(YFinanceNewsProvider())
+        self.provider_service.register_provider(WebSearchProvider())
         
         # Register mock providers (Priority 10)
         self.provider_service.register_provider(MockQuoteProvider())
@@ -179,6 +182,7 @@ class TaskRuntime:
         
         # Initialize ExecutionContext with the initial_context variables (like llm_config)
         context_vars = initial_context.copy() if initial_context else {}
+        context_vars["intent"] = intent
         self.contexts[task.id] = ExecutionContext(task_id=task.id, variables=context_vars)
         
         # Publish TaskSubmitted event to trigger Planner Pipeline

@@ -8,3 +8,10 @@ frontend/node_modules/
 frontend/dist/
 frontend/.DS_Store
 .DS_Store
+
+# Runtime artifacts
+*.db
+.faos.pids
+*.log
+faos/execution/Untitled-1.txt
+

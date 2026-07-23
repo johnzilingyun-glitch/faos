@@ -3,8 +3,8 @@ $ErrorActionPreference = "Stop"
 Write-Host "Starting FAOS TradingAgents..." -ForegroundColor Cyan
 
 # Check if ports are already in use
-$backendPort = 8001
-$frontendPort = 5173
+$backendPort = 8088
+$frontendPort = 3000
 
 $backendInUse = Get-NetTCPConnection -LocalPort $backendPort -ErrorAction SilentlyContinue
 if ($backendInUse) {
@@ -13,13 +13,13 @@ if ($backendInUse) {
 
 # Start Backend
 Write-Host "Starting FastAPI Backend on port $backendPort..." -ForegroundColor Green
+$env:PYTHONPATH="." # Ensure local imports work before starting process
 $backendProcess = Start-Process -FilePath "uvicorn" -ArgumentList "faos.api.server:app", "--port", "$backendPort", "--host", "0.0.0.0" -PassThru -NoNewWindow
-$env:PYTHONPATH="." # Ensure local imports work
 
 # Start Frontend
 Write-Host "Starting Vite Frontend on port $frontendPort..." -ForegroundColor Green
 Set-Location -Path ".\frontend"
-$frontendProcess = Start-Process -FilePath "npm" -ArgumentList "run", "dev" -PassThru -NoNewWindow
+$frontendProcess = Start-Process -FilePath "npm.cmd" -ArgumentList "run", "dev" -PassThru -NoNewWindow
 Set-Location -Path ".."
 
 Write-Host ""

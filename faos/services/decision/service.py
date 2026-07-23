@@ -22,17 +22,44 @@ class DecisionService:
     async def evaluate(self, request: DecisionRequest) -> DecisionResult:
         logger.info(f"DecisionService evaluating Task {request.task_id}")
         
-        # Parse context
-        discussion_consensus = request.reasoning_results.get("discussion", {}).get("consensus", "")
+        # Parse full context
+        user_params = request.reasoning_results.get("user_parameters", {})
+        provider_outputs = request.context_data.get("provider_outputs", {})
+        
+        symbol = (
+            user_params.get("symbol")
+            or provider_outputs.get("quote", {}).get("symbol")
+            or "Asset"
+        )
+        
+        discussion = request.reasoning_results.get("discussion", {})
+        discussion_consensus = (
+            discussion.get("consensus", "")
+            if isinstance(discussion, dict) else str(discussion)
+        )
+        analysis_reports = request.reasoning_results.get("analysis_reports", {})
+        
         evidence = request.context_data.get("evidence", [])
-        if not evidence and discussion_consensus:
-            # Fallback if evidence not strictly provided
-            evidence = ["Analyzed discussion consensus."]
+        if not evidence:
+            if discussion_consensus:
+                evidence = ["Analyzed multi-agent discussion consensus."]
+            elif analysis_reports:
+                evidence = ["Analyzed multi-dimensional research reports."]
+            else:
+                evidence = [f"Analyzed market data and news for {symbol}."]
+
+        trader_context = {
+            "symbol": symbol,
+            "user_parameters": user_params,
+            "analysis_reports": analysis_reports,
+            "discussion_consensus": discussion_consensus,
+            "provider_outputs": provider_outputs
+        }
         
         # Step 1: Trader generates proposal
         trader_req = ReasoningRequest(
             task_id=request.task_id,
-            context_data={"consensus": discussion_consensus},
+            context_data=trader_context,
             prompt=TRADER_PROMPT,
             llm_config=request.llm_config
         )
@@ -41,8 +68,12 @@ class DecisionService:
         
         # Step 2: Portfolio Manager makes final decision
         pm_context = {
-            "consensus": discussion_consensus,
-            "trader_proposal": trader_proposal
+            "symbol": symbol,
+            "user_parameters": user_params,
+            "analysis_reports": analysis_reports,
+            "discussion_consensus": discussion_consensus,
+            "trader_proposal": trader_proposal,
+            "provider_outputs": provider_outputs
         }
         pm_req = ReasoningRequest(
             task_id=request.task_id,
@@ -53,32 +84,47 @@ class DecisionService:
         pm_resp = await self.reasoning.analyze_context(pm_req)
         pm_decision = pm_resp.raw_response
         
-        # Parse output for BUY/HOLD/SELL
+        # Parse action (BUY / SELL / HOLD) supporting both English & Chinese
         action = "HOLD"
-        if re.search(r'\bBUY\b', pm_decision, re.IGNORECASE):
+        if re.search(r'\bBUY\b', pm_decision, re.IGNORECASE) or "买入" in pm_decision or "做多" in pm_decision:
             action = "BUY"
-        elif re.search(r'\bSELL\b', pm_decision, re.IGNORECASE):
+        elif re.search(r'\bSELL\b', pm_decision, re.IGNORECASE) or "卖出" in pm_decision or "做空" in pm_decision:
             action = "SELL"
+        elif re.search(r'\bHOLD\b', pm_decision, re.IGNORECASE) or "观望" in pm_decision or "持有" in pm_decision or "暂停" in pm_decision:
+            action = "HOLD"
             
-        # Parse simulated risk (in reality this would be a risk model output)
+        # Parse confidence score
+        confidence = pm_resp.confidence
+        if confidence == 0.0:
+            conf_match = re.search(r'(?:confidence|置信度|信心)[^\d]*(\d+(?:\.\d+)?)', pm_decision, re.IGNORECASE)
+            if conf_match:
+                try:
+                    val = float(conf_match.group(1))
+                    confidence = val if val <= 1.0 else val / 100.0
+                except ValueError:
+                    confidence = 0.8
+            else:
+                confidence = 0.8
+            
+        # Parse risk score
         risk_score = 50
-        if "high risk" in pm_decision.lower():
+        if "high risk" in pm_decision.lower() or "高风险" in pm_decision:
             risk_score = 85
-        elif "low risk" in pm_decision.lower():
+        elif "low risk" in pm_decision.lower() or "低风险" in pm_decision:
             risk_score = 20
             
         # Calculate unified score
         score = self.policy_engine.calculate_unified_score(
             evidence=evidence, 
             sentiment=0.5, 
-            confidence=pm_resp.confidence
+            confidence=confidence
         )
             
         # Create tentative decision
         decision = DecisionResult(
             action=action,
             score=score,
-            confidence=pm_resp.confidence,
+            confidence=confidence,
             risk=risk_score,
             reason=pm_decision,
             strategy=trader_proposal,

@@ -151,6 +151,13 @@ class ReasoningService:
                 model = request.llm_config["model"]
             if request.llm_config.get("api_key"):
                 api_key = request.llm_config["api_key"]
+                
+        if not api_key:
+            import os
+            if provider == "openrouter":
+                api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            elif provider == "deepseek":
+                api_key = os.environ.get("DEEPSEEK_API_KEY", "")
 
         if not api_key:
             return ReasoningResponse(
@@ -176,10 +183,24 @@ class ReasoningService:
             else:
                 messages.append({"role": "user", "content": user_message})
 
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-            )
+            max_retries = 3
+            base_delay = 1.0
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                    )
+                    break
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if ("429" in error_str or "rate limit" in error_str) and attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"Rate limited by {provider.capitalize()}. Retrying in {delay} seconds (Attempt {attempt+1}/{max_retries}). Error: {e}")
+                        await asyncio.sleep(delay)
+                    else:
+                        raise e
 
             raw_text = response.choices[0].message.content or ""
             usage = {}
@@ -238,15 +259,21 @@ class ReasoningService:
         if request.prompt:
             if "workflow_id" in request.prompt and "parameters" in request.prompt:
                 # Mock a planner JSON response
-                # Extract a possible symbol from the intent (context_data['intent'] or just default to NVDA to prove it works)
-                intent = context_data.get("intent", "")
+                intent = context_data.get("intent", "") or context_data.get("conversation_history", "")
                 words = intent.split()
-                # Simple heuristic: find an uppercase word for symbol, else NVDA
-                symbol = next((w for w in words if w.isupper() and len(w) <= 5), "NVDA")
-                if "aapl" in intent.lower(): symbol = "AAPL"
-                elif "tsla" in intent.lower(): symbol = "TSLA"
+                symbol = next((w for w in words if (w.isupper() and len(w) <= 5) or ".HK" in w.upper() or ".SS" in w.upper() or ".SZ" in w.upper()), "AAPL")
+                
+                intent_lower = intent.lower()
+                if "腾讯" in intent or "0700" in intent: symbol = "0700.HK"
+                elif "宝丰" in intent or "600989" in intent: symbol = "600989.SS"
+                elif "茅台" in intent or "600519" in intent: symbol = "600519.SS"
+                elif "特斯拉" in intent or "tsla" in intent_lower: symbol = "TSLA"
+                elif "苹果" in intent or "aapl" in intent_lower: symbol = "AAPL"
+                elif "微软" in intent or "msft" in intent_lower: symbol = "MSFT"
                 
                 raw_response = json.dumps({
+                    "status": "ready",
+                    "message": f"Starting analysis for {symbol}",
                     "workflow_id": "AnalyzeStockWorkflow",
                     "parameters": {"symbol": symbol},
                     "reasoning": f"Mock planner identified symbol {symbol} from intent."

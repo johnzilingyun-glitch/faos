@@ -76,9 +76,12 @@ class AnalyzeSkill(BaseSkill):
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
         from faos.services.analyze.models import AnalyzeRequest
+        context_data = request.context.provider_outputs.copy()
+        context_data["user_parameters"] = request.parameters
+        
         analyze_req = AnalyzeRequest(
             task_id=request.task_id,
-            context_data=request.context.provider_outputs,
+            context_data=context_data,
             llm_config=request.context.get_variable("llm_config", {})
         )
         response = await self.analyze_service.analyze(analyze_req)
@@ -101,9 +104,16 @@ class DecisionSkill(BaseSkill):
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
+        reasoning_results = request.context.results.copy()
+        reasoning_results["user_parameters"] = request.parameters
+        
+        context_data = request.context.provider_outputs.copy()
+        context_data["provider_outputs"] = request.context.provider_outputs.copy()
+        
         decision_req = DecisionRequest(
             task_id=request.task_id,
-            reasoning_results=request.context.results,
+            reasoning_results=reasoning_results,
+            context_data=context_data,
             llm_config=request.context.get_variable("llm_config", {})
         )
         
@@ -140,9 +150,13 @@ class GenerateReportSkill(BaseSkill):
         # Get requested format from parameters or default to markdown
         format_type = request.parameters.get("format", "markdown")
         
+        context_data = request.context.results.copy()
+        context_data["provider_outputs"] = request.context.provider_outputs.copy()
+        context_data["user_parameters"] = request.parameters
+        
         report_req = ReportRequest(
             task_id=request.task_id,
-            context_data=request.context.results,
+            context_data=context_data,
             format=format_type
         )
         
@@ -175,6 +189,7 @@ class DiscussSkill(BaseSkill):
         # Pull data from context to discuss
         context_data = request.context.provider_outputs.copy()
         context_data["analysis_reports"] = request.context.results.get("analysis_reports", {})
+        context_data["user_parameters"] = request.parameters
         
         disc_req = DiscussionRequest(
             task_id=request.task_id,
