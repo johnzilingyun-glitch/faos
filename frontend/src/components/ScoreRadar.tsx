@@ -14,16 +14,16 @@ export interface ScoreRadarProps {
 
 export function ScoreRadar({ scores }: ScoreRadarProps) {
   const data = [
-    { subject: 'Fundamentals', A: scores.fundamental, fullMark: 100 },
-    { subject: 'Technicals', A: scores.technical, fullMark: 100 },
-    { subject: 'Sentiment', A: scores.sentiment, fullMark: 100 },
+    { subject: 'Investment', A: scores.fundamental, fullMark: 100 },
+    { subject: 'Valuation', A: scores.technical, fullMark: 100 },
+    { subject: 'Catalyst', A: scores.sentiment, fullMark: 100 },
     { subject: 'Macro', A: scores.macro, fullMark: 100 },
-    { subject: 'Risk Mgr', A: scores.risk, fullMark: 100 },
+    { subject: 'Risk Health', A: scores.risk, fullMark: 100 },
   ];
 
   return (
     <div className="w-full h-[300px] bg-slate-900 rounded-xl p-4 border border-slate-800 shadow-xl">
-      <h3 className="text-slate-200 font-semibold mb-2">Alpha Scoring Radar</h3>
+      <h3 className="text-slate-200 font-semibold mb-2">Decision Scorecard Radar</h3>
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data}>
           <PolarGrid stroke="#334155" />

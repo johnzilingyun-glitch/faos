@@ -16,6 +16,9 @@ class HistoryStorage:
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # WAL allows concurrent readers with one writer — the watchlist
+        # background thread and the API loop both touch this database.
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _init_db(self):

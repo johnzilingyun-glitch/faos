@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import yfinance as yf
 import pandas as pd
@@ -50,6 +51,11 @@ class YFinanceQuoteProvider(BaseProvider):
         )
 
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:
+        # yfinance is a synchronous (blocking) library — run the whole fetch
+        # in a worker thread so the asyncio event loop is never stalled.
+        return await asyncio.to_thread(self._fetch_sync, request)
+
+    def _fetch_sync(self, request: ProviderRequest) -> ProviderResponse:
         symbol = request.entity
         if not symbol:
             return ProviderResponse(status="failed", error="Entity (symbol) is required")
@@ -203,6 +209,10 @@ class YFinanceNewsProvider(BaseProvider):
         )
 
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:
+        # yfinance is a synchronous (blocking) library — run in a worker thread.
+        return await asyncio.to_thread(self._fetch_sync, request)
+
+    def _fetch_sync(self, request: ProviderRequest) -> ProviderResponse:
         symbol = request.entity
         if not symbol:
             return ProviderResponse(status="failed", error="Entity (symbol) is required")

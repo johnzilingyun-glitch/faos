@@ -8,9 +8,13 @@ logger = logging.getLogger(__name__)
 class ProviderService:
     """
     Provider Service is the central registry and access point for all external data.
+
+    If a SecurityGovernanceService is attached, every fetch is checked
+    against the governance policy before hitting the provider.
     """
-    def __init__(self):
+    def __init__(self, security=None):
         self.providers: Dict[str, BaseProvider] = {}
+        self.security = security
         logger.info("ProviderService initialized")
 
     def register_provider(self, provider: BaseProvider):
@@ -26,6 +30,11 @@ class ProviderService:
         if not provider:
             error_msg = f"Provider not found: {provider_id}"
             logger.error(error_msg)
+            return ProviderResponse(status="failed", error=error_msg)
+
+        if self.security is not None and not self.security.check_provider_access(provider_id):
+            error_msg = f"Provider {provider_id} blocked by security governance policy"
+            logger.warning(error_msg)
             return ProviderResponse(status="failed", error=error_msg)
 
         logger.info(f"Fetching data from provider: {provider_id} for entity: {request.entity}")

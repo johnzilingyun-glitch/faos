@@ -156,19 +156,28 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                     <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--accent-color, #3b82f6)' }}>
                       {rec.symbol}
                     </span>
-                    {rec.decision?.pm?.decision && (
-                      <span style={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        background: rec.decision.pm.decision === 'BUY' ? 'rgba(5,150,105,0.1)' : rec.decision.pm.decision === 'SELL' ? 'rgba(220,38,38,0.1)' : 'rgba(217,119,6,0.1)',
-                        color: rec.decision.pm.decision === 'BUY' ? 'var(--success-color, #059669)' : rec.decision.pm.decision === 'SELL' ? 'var(--danger-color, #dc2626)' : 'var(--warning-color, #d97706)',
-                        border: `1px solid ${rec.decision.pm.decision === 'BUY' ? 'rgba(5,150,105,0.3)' : rec.decision.pm.decision === 'SELL' ? 'rgba(220,38,38,0.3)' : 'rgba(217,119,6,0.3)'}`
-                      }}>
-                        {rec.decision.pm.decision}
-                      </span>
-                    )}
+                    {(() => {
+                      const label = rec.decision?.scorecard?.recommendation || rec.decision?.pm?.scorecard?.recommendation || rec.decision?.pm?.decision;
+                      if (!label) return null;
+                      const raw = String(label).toUpperCase();
+                      const action = raw === 'BUY' ? 'BUY' : (raw === 'SELL' || raw === 'REDUCE' || raw === 'AVOID') ? 'SELL' : 'HOLD';
+                      const background = action === 'BUY' ? 'rgba(5,150,105,0.1)' : action === 'SELL' ? 'rgba(220,38,38,0.1)' : 'rgba(217,119,6,0.1)';
+                      const color = action === 'BUY' ? 'var(--success-color, #059669)' : action === 'SELL' ? 'var(--danger-color, #dc2626)' : 'var(--warning-color, #d97706)';
+                      const border = action === 'BUY' ? 'rgba(5,150,105,0.3)' : action === 'SELL' ? 'rgba(220,38,38,0.3)' : 'rgba(217,119,6,0.3)';
+                      return (
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '9999px',
+                          background,
+                          color,
+                          border: `1px solid ${border}`
+                        }}>
+                          {String(label)}
+                        </span>
+                      );
+                    })()}
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted, #94a3b8)' }}>
                       {rec.timestamp}
                     </span>

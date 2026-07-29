@@ -1,11 +1,8 @@
+import asyncio
 import logging
 from faos.services.skill.base import BaseSkill
 from faos.services.skill.models import SkillRequest, SkillResponse
-from faos.core.models import Event
 from faos.services.decision.portfolio import PortfolioTracker
-import asyncio
-from faos.services.decision.portfolio import PortfolioTracker
-import asyncio
 
 logger = logging.getLogger(__name__)
 

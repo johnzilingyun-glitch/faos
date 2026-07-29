@@ -273,6 +273,9 @@ body {
   padding: 2rem;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.01);
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .impeccable-card:hover {
@@ -315,6 +318,11 @@ body {
 .card-manager {
   background: rgba(59, 130, 246, 0.03);
   border-color: rgba(59, 130, 246, 0.15);
+}
+
+.card-risk {
+  background: rgba(217, 119, 6, 0.03);
+  border-color: rgba(217, 119, 6, 0.15);
 }
 
 /* Final Verdict Card */
@@ -411,6 +419,9 @@ body {
 /* Markdown Styles */
 .markdown-body {
   color: var(--text-secondary);
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-body p { margin-bottom: 1rem; }
@@ -480,11 +491,17 @@ body {
 
 /* ── Markdown Table Styling ─────────────────── */
 .markdown-body table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-collapse: collapse;
-  margin: 1rem 0;
+  margin: 1.25rem 0;
   font-size: var(--text-xs);
   font-family: var(--font-main);
+  box-sizing: border-box;
+  border-radius: 8px;
 }
 
 .markdown-body thead th {
@@ -494,7 +511,8 @@ body {
   text-align: left;
   padding: 0.75rem 1rem;
   border-bottom: 2px solid var(--surface-border);
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .markdown-body tbody td {
@@ -502,6 +520,8 @@ body {
   border-bottom: 1px solid var(--surface-border);
   color: var(--text-secondary);
   vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .markdown-body tbody tr:hover {
@@ -593,6 +613,10 @@ body {
   top: calc(100% + 0.75rem);
   right: 0;
   width: 320px;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  box-sizing: border-box;
   z-index: 300;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(16px);

@@ -8,6 +8,7 @@ class ReasoningRequest(BaseModel):
     prompt: Optional[str] = Field(default=None, description="System prompt to define agent persona")
     model: Optional[str] = Field(default=None, description="Override LLM model name for this request")
     llm_config: Optional[Dict[str, Any]] = Field(default=None, description="Dynamic LLM configuration overriding global env")
+    json_mode: bool = Field(default=False, description="Request provider-native JSON output mode for structured reasoning")
 
 class ReasoningResponse(BaseModel):
     task_id: str

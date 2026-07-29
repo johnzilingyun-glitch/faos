@@ -1,5 +1,7 @@
 import logging
-from faos.services.decision.models import DecisionRequest, DecisionResult
+from faos.services.decision.models import (
+    DecisionRequest, DecisionResult, PMDecision, PM_DECISION_JSON_HINT,
+)
 from faos.services.decision.prompts import TRADER_PROMPT, PORTFOLIO_MANAGER_PROMPT
 from faos.services.reasoning.service import ReasoningService
 from faos.services.reasoning.models import ReasoningRequest
@@ -33,10 +35,19 @@ class DecisionService:
         )
         
         discussion = request.reasoning_results.get("discussion", {})
-        discussion_consensus = (
-            discussion.get("consensus", "")
-            if isinstance(discussion, dict) else str(discussion)
-        )
+        if isinstance(discussion, dict):
+            # DiscussSkill stores {'Investment Plan': ..., 'Risk Plan': ...}; older
+            # callers may pass {'consensus': ...}. Support both.
+            discussion_consensus = discussion.get("consensus", "")
+            if not discussion_consensus:
+                parts = []
+                if discussion.get("Investment Plan"):
+                    parts.append(f"--- Investment Plan ---\n{discussion['Investment Plan']}")
+                if discussion.get("Risk Plan"):
+                    parts.append(f"--- Risk Plan ---\n{discussion['Risk Plan']}")
+                discussion_consensus = "\n\n".join(parts)
+        else:
+            discussion_consensus = str(discussion)
         analysis_reports = request.reasoning_results.get("analysis_reports", {})
         
         evidence = request.context_data.get("evidence", [])
@@ -66,7 +77,7 @@ class DecisionService:
         trader_resp = await self.reasoning.analyze_context(trader_req)
         trader_proposal = trader_resp.raw_response
         
-        # Step 2: Portfolio Manager makes final decision
+        # Step 2: Portfolio Manager makes final decision (STRUCTURED — no regex)
         pm_context = {
             "symbol": symbol,
             "user_parameters": user_params,
@@ -81,37 +92,17 @@ class DecisionService:
             prompt=PORTFOLIO_MANAGER_PROMPT,
             llm_config=request.llm_config
         )
-        pm_resp = await self.reasoning.analyze_context(pm_req)
-        pm_decision = pm_resp.raw_response
+        pm, pm_raw = await self.reasoning.analyze_structured(
+            pm_req, PMDecision, PM_DECISION_JSON_HINT
+        )
+        if pm is None:
+            # Degrade gracefully: fall back to legacy text parsing of the raw output.
+            pm = self._parse_pm_text(pm_raw)
         
-        # Parse action (BUY / SELL / HOLD) supporting both English & Chinese
-        action = "HOLD"
-        if re.search(r'\bBUY\b', pm_decision, re.IGNORECASE) or "买入" in pm_decision or "做多" in pm_decision:
-            action = "BUY"
-        elif re.search(r'\bSELL\b', pm_decision, re.IGNORECASE) or "卖出" in pm_decision or "做空" in pm_decision:
-            action = "SELL"
-        elif re.search(r'\bHOLD\b', pm_decision, re.IGNORECASE) or "观望" in pm_decision or "持有" in pm_decision or "暂停" in pm_decision:
-            action = "HOLD"
-            
-        # Parse confidence score
-        confidence = pm_resp.confidence
-        if confidence == 0.0:
-            conf_match = re.search(r'(?:confidence|置信度|信心)[^\d]*(\d+(?:\.\d+)?)', pm_decision, re.IGNORECASE)
-            if conf_match:
-                try:
-                    val = float(conf_match.group(1))
-                    confidence = val if val <= 1.0 else val / 100.0
-                except ValueError:
-                    confidence = 0.8
-            else:
-                confidence = 0.8
-            
-        # Parse risk score
-        risk_score = 50
-        if "high risk" in pm_decision.lower() or "高风险" in pm_decision:
-            risk_score = 85
-        elif "low risk" in pm_decision.lower() or "低风险" in pm_decision:
-            risk_score = 20
+        action = pm.action.upper() if pm.action.upper() in ("BUY", "SELL", "HOLD") else "HOLD"
+        confidence = pm.confidence
+        risk_score = pm.risk_score
+        reason = pm.rationale or pm_raw
             
         # Calculate unified score
         score = self.policy_engine.calculate_unified_score(
@@ -126,12 +117,41 @@ class DecisionService:
             score=score,
             confidence=confidence,
             risk=risk_score,
-            reason=pm_decision,
+            reason=reason,
             strategy=trader_proposal,
-            evidence=evidence
+            evidence=evidence,
+            scorecard=pm.scorecard.model_dump()
         )
         
         # Step 3: Run Policy Engine Guardrails
         final_decision = self.policy_engine.evaluate_guardrails(decision, request.policy)
         
         return final_decision
+
+    def _parse_pm_text(self, pm_decision: str) -> PMDecision:
+        """Legacy fallback: extract a PMDecision from free text (structured parse failed)."""
+        action = "HOLD"
+        if re.search(r'\bBUY\b', pm_decision, re.IGNORECASE) or "买入" in pm_decision or "做多" in pm_decision:
+            action = "BUY"
+        elif re.search(r'\bSELL\b', pm_decision, re.IGNORECASE) or "卖出" in pm_decision or "做空" in pm_decision:
+            action = "SELL"
+        
+        confidence = 0.8
+        conf_match = re.search(r'(?:confidence|置信度|信心)[^\d]*(\d+(?:\.\d+)?)', pm_decision, re.IGNORECASE)
+        if conf_match:
+            try:
+                val = float(conf_match.group(1))
+                confidence = val if val <= 1.0 else val / 100.0
+            except ValueError:
+                pass
+        
+        risk_score = 50
+        if "high risk" in pm_decision.lower() or "高风险" in pm_decision:
+            risk_score = 85
+        elif "low risk" in pm_decision.lower() or "低风险" in pm_decision:
+            risk_score = 20
+        
+        return PMDecision(
+            action=action, confidence=confidence,
+            risk_score=risk_score, rationale=pm_decision,
+        )

@@ -108,7 +108,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
 
       {/* Settings Popover Dropdown */}
       {isOpen && (
-        <div className="settings-popover impeccable-card">
+        <div className="settings-popover">
           <div className="settings-header">
             <div className="settings-title">
               <Settings size={16} color="var(--accent-color)" />

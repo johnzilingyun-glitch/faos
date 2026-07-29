@@ -69,12 +69,12 @@ async def test_engine_dag_execution():
     plan = ExecutionPlan(
         task_id=task_id,
         nodes=[
-            PlanNode(id="node1", capability="FetchData", parameters={"symbol": "MSFT"}),
-            PlanNode(id="node2", capability="FetchNews", parameters={"symbol": "MSFT"}),
-            PlanNode(id="node3", capability="Analyze", dependencies=["node1", "node2"]),
-            PlanNode(id="node-discuss", capability="Discussion", dependencies=["node3"]),
-            PlanNode(id="node4", capability="Decision", dependencies=["node-discuss"]),
-            PlanNode(id="node5", capability="GenerateReport", dependencies=["node4"])
+            PlanNode(id="node1", capability="cap.fetch_data", parameters={"symbol": "MSFT"}),
+            PlanNode(id="node2", capability="cap.fetch_news", parameters={"symbol": "MSFT"}),
+            PlanNode(id="node3", capability="cap.analyze", dependencies=["node1", "node2"]),
+            PlanNode(id="node-discuss", capability="cap.discuss", dependencies=["node3"]),
+            PlanNode(id="node4", capability="cap.decision", dependencies=["node-discuss"]),
+            PlanNode(id="node5", capability="cap.report", dependencies=["node4"])
         ]
     )
 
@@ -133,8 +133,8 @@ async def test_engine_cycle_detection():
     plan = ExecutionPlan(
         task_id=task_id,
         nodes=[
-            PlanNode(id="node1", capability="FetchData", dependencies=["node2"]),
-            PlanNode(id="node2", capability="FetchNews", dependencies=["node1"])
+            PlanNode(id="node1", capability="cap.fetch_data", dependencies=["node2"]),
+            PlanNode(id="node2", capability="cap.fetch_news", dependencies=["node1"])
         ]
     )
 

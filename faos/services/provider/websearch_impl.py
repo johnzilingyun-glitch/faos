@@ -47,8 +47,26 @@ class WebSearchProvider(BaseProvider):
         )
 
     async def fetch(self, request: ProviderRequest) -> ProviderResponse:
-        query = request.entity
+        entity = request.entity or ""
+        params = request.parameters or {}
         
+        search_query = params.get("search_query")
+        news_sources = params.get("news_sources", [])
+        
+        if search_query:
+            query = search_query
+        elif entity:
+            query = entity
+            if news_sources:
+                query = f"{entity} {' '.join(news_sources)}"
+            elif any('\u4e00' <= c <= '\u9fff' for c in entity) or entity.endswith(('.SS', '.SZ', '.HK')):
+                # Enrich default query for Chinese targets with top financial media keywords
+                query = f"{entity} 华尔街见闻 财联社 金十数据 最新消息 研报"
+            else:
+                query = f"{entity} Bloomberg Reuters CNBC Financial Times Wall Street Journal Goldman Sachs analysis latest news"
+        else:
+            query = "华尔街见闻早餐 财联社早间新闻精选 陆家嘴财经早餐 央视新闻 新华社 国家统计局 人民银行 金十数据 最新消息"
+
         # 1. Check Cache
         await self._init_redis()
         cache_key = f"faos:websearch:{hashlib.md5(query.encode()).hexdigest()}"
@@ -72,15 +90,15 @@ class WebSearchProvider(BaseProvider):
         
         if self.tavily_api_key:
             try:
-                logger.info("Searching via Tavily...")
+                logger.info(f"Searching via Tavily (query: {query})...")
                 results = await self._search_tavily(query)
             except Exception as e:
-                logger.error(f"Tavily search failed (possibly out of quota): {e}")
+                logger.error(f"Tavily search failed: {e}")
                 errors.append(f"Tavily: {e}")
                 
         if results is None and self.serper_api_key:
             try:
-                logger.info("Falling back to Serper...")
+                logger.info(f"Falling back to Serper (query: {query})...")
                 results = await self._search_serper(query)
             except Exception as e:
                 logger.error(f"Serper search failed: {e}")
@@ -88,7 +106,7 @@ class WebSearchProvider(BaseProvider):
                 
         if results is None and getattr(self, 'jina_api_key', None):
             try:
-                logger.info("Falling back to Jina...")
+                logger.info(f"Falling back to Jina (query: {query})...")
                 results = await self._search_jina(query)
             except Exception as e:
                 logger.error(f"Jina search failed: {e}")
@@ -98,7 +116,7 @@ class WebSearchProvider(BaseProvider):
             return ProviderResponse(status="error", error=f"All search providers failed. Errors: {errors}")
 
         if results is not None:
-            # 4. Save to Cache
+            # 3. Save to Cache
             if self.redis_client:
                 try:
                     await self.redis_client.setex(cache_key, 7200, json.dumps(results))
@@ -113,13 +131,14 @@ class WebSearchProvider(BaseProvider):
 
     async def _search_tavily(self, query: str) -> List[Dict[str, str]]:
         url = "https://api.tavily.com/search"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=12.0) as client:
             payload = {
                 "api_key": self.tavily_api_key,
                 "query": query,
-                "search_depth": "basic",
+                "topic": "news",
+                "search_depth": "advanced",
                 "include_answer": False,
-                "max_results": 5
+                "max_results": 10
             }
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
@@ -131,15 +150,20 @@ class WebSearchProvider(BaseProvider):
                     "title": item.get("title", ""),
                     "url": item.get("url", ""),
                     "snippet": item.get("content", ""),
+                    "published_date": item.get("published_date", ""),
                     "source": "Tavily"
                 })
             return results
 
     async def _search_serper(self, query: str) -> List[Dict[str, str]]:
-        url = "https://google.serper.dev/search"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        # Dedicated Google Serper News Endpoint
+        url = "https://google.serper.dev/news"
+        async with httpx.AsyncClient(timeout=12.0) as client:
             payload = {
-                "q": query
+                "q": query,
+                "gl": "cn",
+                "hl": "zh-cn",
+                "num": 10
             }
             headers = {
                 'X-API-KEY': self.serper_api_key,
@@ -150,19 +174,21 @@ class WebSearchProvider(BaseProvider):
             data = resp.json()
             
             results = []
-            # Check organic results
-            for item in data.get("organic", [])[:5]:
+            items = data.get("news", []) or data.get("organic", [])
+            for item in items[:10]:
                 results.append({
                     "title": item.get("title", ""),
                     "url": item.get("link", ""),
                     "snippet": item.get("snippet", ""),
-                    "source": "Serper (Google)"
+                    "published_date": item.get("date", ""),
+                    "publisher": item.get("source", ""),
+                    "source": "Serper (Google News)"
                 })
             return results
 
     async def _search_jina(self, query: str) -> List[Dict[str, str]]:
         url = f"https://s.jina.ai/{query}"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=12.0) as client:
             headers = {
                 'Authorization': f'Bearer {self.jina_api_key}',
                 'Accept': 'application/json'
@@ -172,15 +198,16 @@ class WebSearchProvider(BaseProvider):
             data = resp.json()
             
             results = []
-            for item in data.get("data", [])[:5]:
+            for item in data.get("data", [])[:8]:
                 snippet = item.get("description", "")
                 if not snippet:
                     content = item.get("content", "")
-                    snippet = content[:200] if content else ""
+                    snippet = content[:300] if content else ""
                 results.append({
                     "title": item.get("title", ""),
                     "url": item.get("url", ""),
                     "snippet": snippet,
+                    "published_date": item.get("publishedTime", ""),
                     "source": "Jina Search"
                 })
             return results

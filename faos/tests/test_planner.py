@@ -33,7 +33,7 @@ async def test_planner_pipeline_generates_plan():
                 task_id=request.task_id,
                 insights={},
                 confidence=1.0,
-                raw_response='{"workflow_id": "AnalyzeStockWorkflow", "parameters": {"symbol": "TSLA"}, "reasoning": "Test"}',
+                raw_response='{"status": "ready", "message": "ok", "workflow_id": "AnalyzeStockWorkflow", "parameters": {"symbol": "TSLA"}, "reasoning": "Test"}',
                 usage={}
             )
             

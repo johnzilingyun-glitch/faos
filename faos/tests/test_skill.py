@@ -23,8 +23,8 @@ async def test_skill_service_registration_and_execution():
     service.register_skill(FetchNewsSkill(data_route=data_route))
     
     # Verify retrieval
-    assert service.get_skill("FetchData") is not None
-    assert service.get_skill("FetchNews") is not None
+    assert service.get_skill("cap.fetch_data") is not None
+    assert service.get_skill("cap.fetch_news") is not None
     assert service.get_skill("NonExistent") is None
     
     # Prepare context
@@ -33,7 +33,7 @@ async def test_skill_service_registration_and_execution():
     
     # Execute FetchData
     req1 = SkillRequest(task_id=task_id, parameters={"symbol": "TSLA"}, context=context)
-    resp1 = await service.execute_capability("FetchData", req1)
+    resp1 = await service.execute_capability("cap.fetch_data", req1)
     
     assert resp1.status == "success"
     assert "quote" in context.provider_outputs

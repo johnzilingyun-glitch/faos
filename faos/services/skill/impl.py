@@ -17,7 +17,7 @@ class FetchDataSkill(BaseSkill):
         return SkillManifest(
             id="stock.quote.mock",
             name="Mock Quote Skill",
-            capability="FetchData",
+            capability="cap.fetch_data",
             description="Mock implementation of fetching quote data"
         )
         
@@ -43,22 +43,50 @@ class FetchNewsSkill(BaseSkill):
     def manifest(self) -> SkillManifest:
         return SkillManifest(
             id="stock.news.mock",
-            name="Mock News Skill",
-            capability="FetchNews",
-            description="Mock implementation of fetching news data"
+            name="News Fetching Skill",
+            capability="cap.fetch_news",
+            description="Fetches real-time financial, macroeconomic, geopolitical, and morning digest news from major media sources."
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
-        symbol = request.parameters.get("symbol", "AAPL")
+        params = request.parameters or {}
+        symbol = params.get("symbol", "AAPL")
+        search_query = params.get("search_query")
+        news_sources = params.get("news_sources", [])
+        news_type = params.get("news_type", "general")
         
-        provider_req = ProviderRequest(entity=symbol)
-        provider_resp = await self.data_route.fetch_data("news", provider_req)
+        provider_req = ProviderRequest(
+            entity=symbol,
+            parameters={
+                "search_query": search_query,
+                "news_sources": news_sources,
+                "news_type": news_type,
+            }
+        )
         
-        if provider_resp.status == "failed":
-            return SkillResponse(status="failed", error=provider_resp.error)
+        # 1. Fetch web news (Tavily / Serper News / Jina with targeted sources)
+        web_resp = await self.data_route.fetch_data("news", provider_req)
+        
+        results = []
+        if web_resp.status == "success" and isinstance(web_resp.data, list):
+            results.extend(web_resp.data)
             
-        request.context.add_provider_output("news", provider_resp.data)
-        return SkillResponse(status="success", output={"data_type": "news"})
+        # 2. Also fetch yfinance news if symbol is a valid stock ticker and query is not custom
+        if symbol and not search_query:
+            try:
+                yf_req = ProviderRequest(entity=symbol)
+                yf_resp = await self.data_route.provider_service.fetch_data("yfinance_news", yf_req)
+                if yf_resp.status == "success" and isinstance(yf_resp.data, list):
+                    existing_titles = {item.get("title", "").lower() for item in results if isinstance(item, dict)}
+                    for item in yf_resp.data:
+                        if isinstance(item, dict) and item.get("title", "").lower() not in existing_titles:
+                            results.append(item)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Secondary yfinance news fetch skipped: {e}")
+                
+        request.context.add_provider_output("news", results)
+        return SkillResponse(status="success", output={"data_type": "news", "count": len(results)})
 
 
 class AnalyzeSkill(BaseSkill):
@@ -70,23 +98,49 @@ class AnalyzeSkill(BaseSkill):
         return SkillManifest(
             id="stock.analyze.reasoning",
             name="Reasoning Analyze Skill",
-            capability="Analyze",
+            capability="cap.analyze",
             description="Uses AnalyzeService to analyze stock from 4 different perspectives"
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
         from faos.services.analyze.models import AnalyzeRequest
+        from faos.services.reasoning.schemas import build_fact_sheet
+
         context_data = request.context.provider_outputs.copy()
         context_data["user_parameters"] = request.parameters
-        
+
+        # Build the canonical FactSheet ONCE and inject it so downstream agents
+        # reference established facts instead of re-introducing the company.
+        fact_sheet = build_fact_sheet(request.context.provider_outputs, request.parameters)
+        context_data["fact_sheet"] = fact_sheet
+        request.context.set_fact_sheet(fact_sheet)
+
         analyze_req = AnalyzeRequest(
             task_id=request.task_id,
             context_data=context_data,
             llm_config=request.context.get_variable("llm_config", {})
         )
         response = await self.analyze_service.analyze(analyze_req)
-        
+
+        # Rendered markdown (back-compat for report builder + frontend)
         request.context.add_result("analysis_reports", response.analyst_reports)
+        # Structured reports (new, for evidence fusion / downstream agents)
+        request.context.add_result(
+            "analysis_reports_structured",
+            {role: rep.model_dump() for role, rep in response.structured_reports.items()}
+        )
+
+        # Populate the shared evidence graph (Fact -> Inference chain).
+        for role, rep in response.structured_reports.items():
+            for f in rep.facts:
+                request.context.add_evidence_node("facts", {**f.model_dump(), "by": role})
+            for e in rep.evidence:
+                request.context.add_evidence_node("evidence", {**e.model_dump(), "by": role})
+            for s in rep.signals:
+                request.context.add_evidence_node("signals", {**s.model_dump(), "by": role})
+            for i in rep.inferences:
+                request.context.add_evidence_node("inferences", {**i.model_dump(), "by": role})
+
         return SkillResponse(status="success", output=response.analyst_reports)
 
 
@@ -99,7 +153,7 @@ class DecisionSkill(BaseSkill):
         return SkillManifest(
             id="stock.decision.policy",
             name="Policy Decision Skill",
-            capability="Decision",
+            capability="cap.decision",
             description="Uses DecisionService to make investment decisions"
         )
         
@@ -124,7 +178,8 @@ class DecisionSkill(BaseSkill):
             "confidence": result.confidence,
             "reason": result.reason,
             "risk": result.risk,
-            "strategy": result.strategy
+            "strategy": result.strategy,
+            "scorecard": result.scorecard
         }
         
         request.context.add_result("decision", decision_data)
@@ -140,7 +195,7 @@ class GenerateReportSkill(BaseSkill):
         return SkillManifest(
             id="stock.report.markdown",
             name="Markdown Report Skill",
-            capability="GenerateReport",
+            capability="cap.report",
             description="Generates markdown report using ReportService"
         )
         
@@ -153,6 +208,9 @@ class GenerateReportSkill(BaseSkill):
         context_data = request.context.results.copy()
         context_data["provider_outputs"] = request.context.provider_outputs.copy()
         context_data["user_parameters"] = request.parameters
+        # Canonical FactSheet + shared evidence graph for de-duplicated rendering.
+        context_data["fact_sheet"] = request.context.fact_sheet
+        context_data["evidence_graph"] = request.context.evidence_graph
         
         report_req = ReportRequest(
             task_id=request.task_id,
@@ -179,7 +237,7 @@ class DiscussSkill(BaseSkill):
         return SkillManifest(
             id="stock.discuss",
             name="Multi-Agent Discussion Skill",
-            capability="Discussion",
+            capability="cap.discuss",
             description="Orchestrates expert agents to form consensus"
         )
         
@@ -190,6 +248,9 @@ class DiscussSkill(BaseSkill):
         context_data = request.context.provider_outputs.copy()
         context_data["analysis_reports"] = request.context.results.get("analysis_reports", {})
         context_data["user_parameters"] = request.parameters
+        # Reuse the canonical FactSheet so debaters don't re-introduce the company.
+        if request.context.fact_sheet:
+            context_data["fact_sheet"] = request.context.fact_sheet
         
         disc_req = DiscussionRequest(
             task_id=request.task_id,
@@ -221,8 +282,23 @@ class DiscussSkill(BaseSkill):
                 frontend_discussion["Risk Plan"] = op.opinion
             elif "Risk Debator" in op.name:
                 frontend_discussion["Risk Debate"][op.name] = op.opinion
-                
+
+        # Persist the structured debate into the shared evidence graph (claims / rebuttals).
+        for op in response.opinions:
+            if not op.structured:
+                continue
+            if op.name == "Bull Researcher":
+                for c in op.structured.get("claims", []):
+                    request.context.add_evidence_node("claims", {**c, "by": "bull"})
+            elif op.name == "Bear Researcher":
+                for r in op.structured.get("rebuttals", []):
+                    request.context.add_evidence_node("claims", {**r, "by": "bear", "kind": "rebuttal"})
+
         request.context.add_result("discussion", frontend_discussion)
+        request.context.add_result(
+            "debate_structured",
+            {op.name: op.structured for op in response.opinions if op.structured}
+        )
         
         return SkillResponse(status="success", output={"consensus": response.consensus})
 
@@ -236,7 +312,7 @@ class ReflectionSkill(BaseSkill):
         return SkillManifest(
             id="stock.reflection.risk",
             name="Reflection Risk Skill",
-            capability="Reflection",
+            capability="cap.reflection",
             description="Uses ReflectionService to perform hallucination and logic checks"
         )
         

@@ -87,6 +87,17 @@ class PromptBuilder:
                     ""
                 ])
 
+        # Canonical FactSheet (built once by the runtime) — reference, do not re-introduce.
+        if "fact_sheet" in context_data:
+            fact_sheet = context_data.pop("fact_sheet")
+            if fact_sheet:
+                prompt.extend([
+                    "# Known Facts (Canonical — Already Established)",
+                    "These base facts are ALREADY KNOWN to every agent. DO NOT re-introduce the company or restate these facts; reference them by name and spend your output ONLY on new, role-specific analysis:",
+                    json.dumps(fact_sheet, ensure_ascii=False, indent=2),
+                    ""
+                ])
+
         prompt.extend([
             "# Evidence / Context Data",
             "The following structured data was gathered by the runtime providers:"

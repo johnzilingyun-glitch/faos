@@ -20,6 +20,13 @@ def mock_reasoning():
         )
         
     reasoning.analyze_context = AsyncMock(side_effect=mock_analyze)
+
+    async def mock_structured(req, response_model, schema_hint=None):
+        # Return a minimal valid structured instance + its JSON.
+        model = response_model()
+        return model, model.model_dump_json()
+
+    reasoning.analyze_structured = AsyncMock(side_effect=mock_structured)
     return reasoning
 
 @pytest.mark.asyncio
@@ -31,7 +38,7 @@ async def test_discussion_service_multi_stage_debate(mock_reasoning):
     
     assert resp.status == "success"
     
-    # Check that it spawned 7 agents in total across stages
+    # Still 7 opinions across stages, same names/order
     assert len(resp.opinions) == 7
     assert resp.opinions[0].name == "Bull Researcher"
     assert resp.opinions[1].name == "Bear Researcher"
@@ -41,8 +48,15 @@ async def test_discussion_service_multi_stage_debate(mock_reasoning):
     assert resp.opinions[5].name == "Neutral Risk Debator"
     assert resp.opinions[6].name == "Chief Risk Officer"
     
-    # Check that ReasoningService was called 7 times
-    assert mock_reasoning.analyze_context.call_count == 7
+    # Debate roles (Bull/Bear/Manager) + CRO now use STRUCTURED reasoning...
+    assert mock_reasoning.analyze_structured.call_count == 4
+    # ...risk debators (x3) still use free-text reasoning.
+    assert mock_reasoning.analyze_context.call_count == 3
+    
+    # The debate opinions carry structured payloads (claims / rebuttals / judgment).
+    assert resp.opinions[0].structured is not None
+    assert resp.opinions[1].structured is not None
+    assert resp.opinions[2].structured is not None
     
     # Check consensus contains both plans
     assert "--- Investment Plan ---" in resp.consensus

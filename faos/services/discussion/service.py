@@ -2,7 +2,12 @@ import asyncio
 import logging
 from typing import List
 
-from faos.services.discussion.models import DiscussionRequest, DiscussionResponse, AgentOpinion
+from faos.services.discussion.models import (
+    DiscussionRequest, DiscussionResponse, AgentOpinion,
+    BullCase, BearCase, DebateJudgment, RiskGuard,
+    BULL_CASE_JSON_HINT, BEAR_CASE_JSON_HINT, DEBATE_JUDGMENT_JSON_HINT,
+    RISK_GUARD_JSON_HINT,
+)
 from faos.services.discussion.prompts import (
     BULL_RESEARCHER_PROMPT,
     BEAR_RESEARCHER_PROMPT,
@@ -28,31 +33,83 @@ class DiscussionService:
     async def discuss(self, request: DiscussionRequest) -> DiscussionResponse:
         logger.info(f"DiscussionService starting multi-stage debate for task {request.task_id}")
         opinions: List[AgentOpinion] = []
+        lang = (request.context_data.get("user_parameters", {}) or {}).get("language", "zh")
         
         try:
-            # Stage 1: Investment Debate (Bull vs Bear)
-            investment_opinions = await self._run_parallel_agents(request, {
-                "Bull Researcher": BULL_RESEARCHER_PROMPT,
-                "Bear Researcher": BEAR_RESEARCHER_PROMPT
-            })
-            opinions.extend(investment_opinions)
-            
-            # Stage 2: Research Manager Synthesizes Investment Plan
-            # Research Manager does not get raw data, only reads the debate
-            investment_context = {
-                "debate": "\n".join([o.opinion for o in investment_opinions])
-            }
-            
-            research_manager_req = ReasoningRequest(
+            # Stage 1a: Bull Researcher -> numbered, attackable Claims
+            bull_req = ReasoningRequest(
                 task_id=request.task_id,
-                context_data=investment_context,
+                context_data=dict(request.context_data),
+                prompt=BULL_RESEARCHER_PROMPT,
+                llm_config=request.llm_config
+            )
+            bull_case, bull_raw = await self.reasoning.analyze_structured(
+                bull_req, BullCase, BULL_CASE_JSON_HINT
+            )
+            if bull_case is None:
+                bull_case = BullCase(summary=bull_raw)
+            bull_conf = (
+                sum(c.confidence for c in bull_case.claims) / len(bull_case.claims)
+                if bull_case.claims else 0.5
+            )
+            opinions.append(AgentOpinion(
+                name="Bull Researcher", role="debator",
+                opinion=bull_case.render(lang), confidence=bull_conf,
+                structured=bull_case.model_dump()
+            ))
+            
+            # Stage 1b: Bear Researcher -> point-by-point rebuttals (SEES the bull's claims)
+            bear_context = dict(request.context_data)
+            bear_context["bull_claims"] = [c.model_dump() for c in bull_case.claims]
+            bear_context["bull_summary"] = bull_case.summary
+            bear_req = ReasoningRequest(
+                task_id=request.task_id,
+                context_data=bear_context,
+                prompt=BEAR_RESEARCHER_PROMPT,
+                llm_config=request.llm_config
+            )
+            bear_case, bear_raw = await self.reasoning.analyze_structured(
+                bear_req, BearCase, BEAR_CASE_JSON_HINT
+            )
+            if bear_case is None:
+                bear_case = BearCase(summary=bear_raw)
+            bear_conf = (
+                sum(r.strength for r in bear_case.rebuttals) / len(bear_case.rebuttals)
+                if bear_case.rebuttals else 0.5
+            )
+            opinions.append(AgentOpinion(
+                name="Bear Researcher", role="debator",
+                opinion=bear_case.render(lang), confidence=bear_conf,
+                structured=bear_case.model_dump()
+            ))
+            
+            # Stage 2: Research Manager JUDGES the debate (claims vs rebuttals)
+            judge_context = {
+                "bull_claims": [c.model_dump() for c in bull_case.claims],
+                "bull_summary": bull_case.summary,
+                "bear_rebuttals": [r.model_dump() for r in bear_case.rebuttals],
+                "bear_extra_risks": [c.model_dump() for c in bear_case.extra_risks],
+                "bear_summary": bear_case.summary,
+                "user_parameters": request.context_data.get("user_parameters", {}),
+            }
+            mgr_req = ReasoningRequest(
+                task_id=request.task_id,
+                context_data=judge_context,
                 prompt=RESEARCH_MANAGER_PROMPT,
                 llm_config=request.llm_config
             )
-            rm_resp = await self.reasoning.analyze_context(research_manager_req)
-            investment_plan = rm_resp.raw_response
+            judgment, mgr_raw = await self.reasoning.analyze_structured(
+                mgr_req, DebateJudgment, DEBATE_JUDGMENT_JSON_HINT
+            )
+            if judgment is None:
+                judgment = DebateJudgment(investment_plan=mgr_raw)
+            investment_plan = judgment.investment_plan or judgment.render(lang)
             
-            opinions.append(AgentOpinion(name="Research Manager", role="research_manager", opinion=investment_plan, confidence=rm_resp.confidence))
+            opinions.append(AgentOpinion(
+                name="Research Manager", role="research_manager",
+                opinion=judgment.render(lang), confidence=judgment.overall_confidence,
+                structured=judgment.model_dump()
+            ))
             
             # Stage 3: Risk Debate (Aggressive, Conservative, Neutral)
             risk_context = request.context_data.copy()
@@ -65,7 +122,7 @@ class DiscussionService:
             }, base_context=risk_context)
             opinions.extend(risk_opinions)
             
-            # Stage 4: Chief Risk Officer Synthesizes Risk Plan
+            # Stage 4: Chief Risk Officer -> structured RiskGuard (stop-loss / sizing / hedges)
             risk_debate_context = risk_context.copy()
             risk_debate_context["risk_debate"] = "\n".join([o.opinion for o in risk_opinions])
             
@@ -75,10 +132,18 @@ class DiscussionService:
                 prompt=CHIEF_RISK_OFFICER_PROMPT,
                 llm_config=request.llm_config
             )
-            cro_resp = await self.reasoning.analyze_context(cro_req)
-            risk_plan = cro_resp.raw_response
+            risk_guard, cro_raw = await self.reasoning.analyze_structured(
+                cro_req, RiskGuard, RISK_GUARD_JSON_HINT
+            )
+            if risk_guard is None:
+                risk_guard = RiskGuard(notes=cro_raw)
+            risk_plan = risk_guard.render(lang)
             
-            opinions.append(AgentOpinion(name="Chief Risk Officer", role="chief_risk_officer", opinion=risk_plan, confidence=cro_resp.confidence))
+            opinions.append(AgentOpinion(
+                name="Chief Risk Officer", role="chief_risk_officer",
+                opinion=risk_plan, confidence=risk_guard.confidence,
+                structured=risk_guard.model_dump()
+            ))
             
             # The consensus text combines the investment plan and the risk plan
             consensus = f"--- Investment Plan ---\n{investment_plan}\n\n--- Risk Plan ---\n{risk_plan}"

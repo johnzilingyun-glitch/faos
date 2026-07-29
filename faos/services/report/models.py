@@ -14,7 +14,7 @@ class Report(BaseModel):
     summary: str = ""
     sections: List[ReportSection] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    generated_at: str = Field(default_factory=lambda: datetime.datetime.utcnow().isoformat())
+    generated_at: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
 
 class ReportRequest(BaseModel):
     task_id: str = Field(..., description="ID of the task")

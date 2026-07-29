@@ -46,3 +46,54 @@ async def test_reasoning_service_analyze_context_without_news():
     assert "recommendation" not in response.insights
     assert response.confidence == 0.50
     assert "estimated" in response.raw_response
+
+
+def test_extract_retry_delay():
+    service = ReasoningService()
+    
+    err1 = "[LLM Error] 429 RESOURCE_EXHAUSTED. {'retryDelay': '29s'}"
+    delay1 = service._extract_retry_delay(err1, attempt=0)
+    assert delay1 == 30.0  # 29 + 1.0 buffer
+
+    err2 = "Quota exceeded... Please retry in 15.5s."
+    delay2 = service._extract_retry_delay(err2, attempt=0)
+    assert delay2 == 16.5  # 15.5 + 1.0 buffer
+
+    err3 = "429 Too Many Requests"
+    delay3 = service._extract_retry_delay(err3, attempt=1, base_delay=3.0)
+    assert delay3 == 6.0  # 3.0 * (2 ** 1)
+
+
+@pytest.mark.asyncio
+async def test_gemini_retry_on_rate_limit(monkeypatch):
+    service = ReasoningService()
+    service.provider = "gemini"
+    
+    class FakeResponse:
+        text = "Retried successfully"
+        usage_metadata = None
+
+    call_count = 0
+
+    def mock_generate_content(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception("429 RESOURCE_EXHAUSTED. 'retryDelay': '0.1s'")
+        return FakeResponse()
+
+    class FakeClient:
+        class models:
+            generate_content = staticmethod(mock_generate_content)
+
+    service._client = FakeClient()
+    
+    request = ReasoningRequest(
+        task_id="retry-test-1",
+        context_data={}
+    )
+    
+    # Sleep should be fast because retryDelay is 0.1s + 1s buffer = 1.1s
+    response = await service.analyze_context(request)
+    assert call_count == 2
+    assert response.raw_response == "Retried successfully"

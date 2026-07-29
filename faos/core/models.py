@@ -1,13 +1,13 @@
 from pydantic import BaseModel, Field
 from typing import Any, Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class Event(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: str
     source: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     trace_id: Optional[str] = None

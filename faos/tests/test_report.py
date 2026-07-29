@@ -7,11 +7,9 @@ from faos.services.report.service import ReportService
 @pytest.fixture
 def sample_context_data():
     return {
-        "analysis": {
-            "symbol": "AAPL",
-            "price": 150.0,
-            "target_price": 160.0,
-            "sentiment": 0.75
+        "user_parameters": {"symbol": "AAPL", "language": "en"},
+        "provider_outputs": {
+            "quote": {"symbol": "AAPL", "price": 150.0, "change": 1.25}
         },
         "decision": {
             "action": "BUY",
@@ -33,8 +31,8 @@ async def test_report_service_markdown(sample_context_data):
     assert response.format == "markdown"
     
     content = response.content
-    assert "FAOS Analysis Report for AAPL" in content
-    assert "Current Price: $150.00" in content or "150.0" in content
+    assert "FAOS Financial Intelligence Report: AAPL" in content
+    assert "150.00" in content or "150.0" in content
     assert "BUY" in content
     assert "0.8" in content or "80" in content
 
@@ -51,8 +49,8 @@ async def test_report_service_json(sample_context_data):
     content = json.loads(response.content)
     assert isinstance(content, dict)
     assert content["metadata"]["task_id"] == "test-2"
-    assert content["title"] == "FAOS Analysis Report for AAPL"
-    assert "BUY" in content["sections"][1]["content"]
+    assert content["title"] == "FAOS Financial Intelligence Report: AAPL"
+    assert any("BUY" in s["content"] for s in content["sections"])
 
 @pytest.mark.asyncio
 async def test_report_service_unsupported_format(sample_context_data):

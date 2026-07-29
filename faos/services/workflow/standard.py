@@ -10,31 +10,31 @@ def get_analyze_stock_workflow() -> WorkflowDefinition:
         name="Analyze Stock Workflow",
         description="Standard workflow to analyze a stock and generate a report",
         nodes=[
-            WorkflowNodeDef(id="node1", capability="FetchData"),
-            WorkflowNodeDef(id="node2", capability="FetchNews"),
+            WorkflowNodeDef(id="node1", capability="cap.fetch_data"),
+            WorkflowNodeDef(id="node2", capability="cap.fetch_news"),
             WorkflowNodeDef(
                 id="node3", 
-                capability="Analyze", 
+                capability="cap.analyze", 
                 dependencies=["node1", "node2"]
             ),
             WorkflowNodeDef(
                 id="node_discuss",
-                capability="Discussion",
+                capability="cap.discuss",
                 dependencies=["node3"]
             ),
             WorkflowNodeDef(
                 id="node_decision", 
-                capability="Decision", 
+                capability="cap.decision", 
                 dependencies=["node_discuss"]
             ),
             WorkflowNodeDef(
                 id="node_reflection",
-                capability="Reflection",
+                capability="cap.reflection",
                 dependencies=["node_decision"]
             ),
             WorkflowNodeDef(
                 id="node4", 
-                capability="GenerateReport", 
+                capability="cap.report", 
                 dependencies=["node_reflection"]
             )
         ]
@@ -49,10 +49,10 @@ def get_news_summary_workflow() -> WorkflowDefinition:
         name="News Summary Workflow",
         description="Fetch news for a symbol and generate a summary report. Good for 'summarize news' queries.",
         nodes=[
-            WorkflowNodeDef(id="node1", capability="FetchNews"),
+            WorkflowNodeDef(id="node1", capability="cap.fetch_news"),
             WorkflowNodeDef(
                 id="node2",
-                capability="GenerateReport",
+                capability="cap.report",
                 dependencies=["node1"]
             )
         ]
@@ -67,15 +67,15 @@ def get_backtest_workflow() -> WorkflowDefinition:
         name="Backtest Workflow",
         description="Run historical backtests on a stock to evaluate trading performance. Good for 'backtest' queries.",
         nodes=[
-            WorkflowNodeDef(id="init_backtest", capability="InitBacktest"),
+            WorkflowNodeDef(id="init_backtest", capability="cap.init_backtest"),
             WorkflowNodeDef(
                 id="run_backtest_loop",
-                capability="RunBacktestLoop",
+                capability="cap.run_backtest_loop",
                 dependencies=["init_backtest"]
             ),
             WorkflowNodeDef(
                 id="generate_report",
-                capability="GenerateReport",
+                capability="cap.report",
                 dependencies=["run_backtest_loop"]
             )
         ]

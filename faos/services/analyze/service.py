@@ -8,6 +8,7 @@ from faos.services.analyze.prompts import (
 )
 from faos.services.reasoning.service import ReasoningService
 from faos.services.reasoning.models import ReasoningRequest
+from faos.services.reasoning.schemas import AnalystReport, ANALYST_REPORT_JSON_HINT
 
 class AnalyzeService:
     def __init__(self, reasoning_service: ReasoningService):
@@ -22,9 +23,11 @@ class AnalyzeService:
     async def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
         tasks = []
         for name, prompt in self.analysts.items():
+            # Each analyst gets its own shallow copy so PromptBuilder can safely
+            # pop fact_sheet/user_parameters without affecting the others.
             req = ReasoningRequest(
                 task_id=request.task_id,
-                context_data=request.context_data,
+                context_data=dict(request.context_data),
                 prompt=prompt,
                 llm_config=request.llm_config
             )
@@ -32,22 +35,33 @@ class AnalyzeService:
             
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        reports = {}
+        rendered = {}
+        structured = {}
         for res in results:
             if isinstance(res, Exception):
                 # In real scenario, log error
                 continue
-            reports[res["name"]] = res["report"]
+            rendered[res["name"]] = res["rendered"]
+            structured[res["name"]] = res["structured"]
             
         return AnalyzeResponse(
             task_id=request.task_id,
             status="success",
-            analyst_reports=reports
+            analyst_reports=rendered,
+            structured_reports=structured
         )
         
     async def _run_analyst(self, name: str, req: ReasoningRequest):
-        resp = await self.reasoning_service.analyze_context(req)
+        lang = (req.context_data.get("user_parameters", {}) or {}).get("language", "zh")
+        report, raw = await self.reasoning_service.analyze_structured(
+            req, AnalystReport, ANALYST_REPORT_JSON_HINT
+        )
+        if report is None:
+            # Structured parse failed: degrade gracefully, keep the raw text.
+            report = AnalystReport(summary=raw)
+        report.role = name
         return {
             "name": name,
-            "report": resp.raw_response
+            "structured": report,
+            "rendered": report.render(lang)
         }

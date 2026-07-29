@@ -36,14 +36,27 @@ interface TraderStrategy {
 
 interface PMDecision {
   decision: string;
-  confidence: string;
+  confidence: string | number;
   reasoning: string;
+  risk_score?: number;
+  scorecard?: {
+    investment_score?: number;
+    risk_level?: string;
+    catalyst?: number;
+    valuation?: number;
+    macro?: number;
+    recommendation?: string;
+  };
 }
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+}
+
+interface DebateStructured {
+  [agentName: string]: any;
 }
 
 const getNodeName = (nodeId: string, capability?: string) => {
@@ -83,6 +96,14 @@ const MODEL_OPTIONS: Record<string, string[]> = {
     'meta-llama/llama-3.3-70b-instruct',
     'google/gemini-pro-1.5'
   ]
+};
+
+const recommendationToAction = (label?: string): 'BUY' | 'SELL' | 'HOLD' => {
+  const v = String(label || '').trim().toUpperCase();
+  if (v === 'BUY' || v === 'SELL' || v === 'HOLD') return v;
+  if (v === 'WATCH' || v === 'OBSERVE') return 'HOLD';
+  if (v === 'REDUCE' || v === 'AVOID') return 'SELL';
+  return 'HOLD';
 };
 
 
@@ -290,7 +311,7 @@ function App() {
     ${decision?.pm ? `
     <div class="card">
       <h2>Stage 3: 最终投资裁决与策略建议</h2>
-      <div class="badge badge-${decision.pm.decision || 'HOLD'}">${decision.pm.decision || 'HOLD'}</div>
+      <div class="badge badge-${recommendationToAction(decision.pm.scorecard?.recommendation || decision.pm.decision)}">${decision.pm.scorecard?.recommendation || decision.pm.decision || 'HOLD'}</div>
       <p><strong>置信度评分:</strong> ${decision.pm.confidence}</p>
       <h3>基金经理决策理由</h3>
       <pre>${typeof decision.pm.reasoning === 'string' ? decision.pm.reasoning : JSON.stringify(decision.pm.reasoning, null, 2)}</pre>
@@ -385,9 +406,13 @@ function App() {
               sessionRef.current.analysisReports = results.analysis_reports;
               setAnalysisReports(results.analysis_reports);
             }
-            if (results.discussion) {
-              sessionRef.current.discussion = results.discussion;
-              setDiscussion(results.discussion);
+            if (results.discussion || results.debate_structured) {
+              const mergedDiscussion = {
+                ...(results.discussion || {}),
+                ...(results.debate_structured ? { 'Debate Structured': results.debate_structured } : {})
+              };
+              sessionRef.current.discussion = mergedDiscussion;
+              setDiscussion(mergedDiscussion);
             }
             if (results.decision) {
               const d = results.decision;
@@ -397,7 +422,9 @@ function App() {
                 pmData = {
                   decision: d.action || 'HOLD',
                   confidence: d.confidence !== undefined ? (typeof d.confidence === 'number' ? (d.confidence <= 1 ? `${(d.confidence * 100).toFixed(0)}%` : `${d.confidence}%`) : String(d.confidence)) : 'High',
-                  reasoning: d.reason || d.justification || ''
+                  reasoning: d.reason || d.justification || '',
+                  risk_score: d.risk,
+                  scorecard: d.scorecard
                 };
               }
               const decObj = { trader: traderData, pm: pmData };
@@ -554,27 +581,16 @@ function App() {
     setIsFollowUpLoading(true);
 
     try {
-      const messagesPayload: { role: string, content: string }[] = [];
-      
-      // Inject Report Context into conversation history for Planner LLM
-      if (reportContent) {
-        messagesPayload.push({
-          role: 'assistant',
-          content: `[Current Analysis Report for ${currentSymbol || 'Asset'}]\n${typeof reportContent === 'string' ? reportContent.slice(0, 3000) : ''}`
-        });
-      }
-      
-      followUpHistory.forEach(m => {
-        messagesPayload.push({ role: m.role, content: m.content });
-      });
-      messagesPayload.push({ role: 'user', content: text });
-
-      const response = await fetch('/api/plan/chat', {
+      // Answer the follow-up IN-CONTEXT without triggering a new pipeline or page switch.
+      const reportText = typeof reportContent === 'string' ? reportContent : (reportContent ? JSON.stringify(reportContent) : '');
+      const response = await fetch('/api/report/followup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: messagesPayload,
-          force_execute: false,
+          question: text,
+          symbol: currentSymbol || 'Asset',
+          report_content: reportText,
+          conversation: followUpHistory.map(m => ({ role: m.role, content: m.content })),
           llm_config: getLlmConfig()
         }),
       });
@@ -585,17 +601,11 @@ function App() {
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: data.message || "I have analyzed your follow-up request.",
+        content: data.answer || "已根据当前研报内容作答。",
         timestamp: new Date()
       };
 
       setFollowUpHistory(prev => [...prev, assistantMsg]);
-
-      if (data.status === 'ready') {
-        setTimeout(() => {
-          transitionToAnalysis(data.parameters?.symbol || currentSymbol);
-        }, 1000);
-      }
     } catch (error) {
       console.error('Error in follow-up chat:', error);
       const errMsg: ChatMessage = {
@@ -1089,12 +1099,25 @@ function App() {
 
             {discussion['Investment Debate'] && discussion['Investment Plan'] && discussion['Risk Plan'] ? (
               <>
+                {(() => {
+                  const structured = (discussion['Debate Structured'] || {}) as DebateStructured;
+                  const bullStructured = structured['Bull Researcher'] || null;
+                  const bearStructured = structured['Bear Researcher'] || null;
+                  const managerStructured = structured['Research Manager'] || null;
+                  const riskStructured = structured['Chief Risk Officer'] || null;
+                  return (
                 <AgentDebateMap
                   bull={typeof discussion['Investment Debate'] === 'string' ? discussion['Investment Debate'] : (discussion['Investment Debate']['Bull'] || discussion['Investment Debate']['Bull Analyst'] || discussion['Investment Debate']['Bull Researcher'] || Object.values(discussion['Investment Debate'])[0] || '') as string}
                   bear={typeof discussion['Investment Debate'] === 'string' ? '' : (discussion['Investment Debate']['Bear'] || discussion['Investment Debate']['Bear Analyst'] || discussion['Investment Debate']['Bear Researcher'] || Object.values(discussion['Investment Debate'])[1] || '') as string}
                   manager={typeof discussion['Investment Plan'] === 'string' ? discussion['Investment Plan'] : JSON.stringify(discussion['Investment Plan'] || '')}
                   risk={typeof discussion['Risk Plan'] === 'string' ? discussion['Risk Plan'] : JSON.stringify(discussion['Risk Plan'] || '')}
+                  bullStructured={bullStructured}
+                  bearStructured={bearStructured}
+                  managerStructured={managerStructured}
+                  riskStructured={riskStructured}
                 />
+                  );
+                })()}
 
                 {discussion['Risk Debate'] && (
                   <div className="grid-3" style={{ marginTop: '1.5rem' }}>
@@ -1152,8 +1175,8 @@ function App() {
             </h2>
 
             <div className="verdict-card">
-              <div className={`verdict-action verdict-${String(decision.pm.decision || 'HOLD')}`}>
-                {String(decision.pm.decision || 'HOLD')}
+              <div className={`verdict-action verdict-${recommendationToAction(decision.pm.scorecard?.recommendation || String(decision.pm.decision || 'HOLD'))}`}>
+                {String(decision.pm.scorecard?.recommendation || decision.pm.decision || 'HOLD')}
               </div>
               <div style={{ color: 'var(--text-secondary)' }}>
                 Confidence: {String(decision.pm.confidence || 'High')}
@@ -1194,15 +1217,30 @@ function App() {
               </div>
 
               <div style={{ marginTop: '2rem' }}>
+                {(() => {
+                  const scorecard = decision.pm?.scorecard || {};
+                  const toNumber = (v: any, fallback: number) => {
+                    const n = typeof v === 'number' ? v : Number(v);
+                    return Number.isFinite(n) ? n : fallback;
+                  };
+                  const investmentScore = toNumber(scorecard.investment_score, 55);
+                  const valuation = Math.max(1, Math.min(5, toNumber(scorecard.valuation, 3)));
+                  const catalyst = Math.max(1, Math.min(5, toNumber(scorecard.catalyst, 3)));
+                  const macro = Math.max(1, Math.min(5, toNumber(scorecard.macro, 3)));
+                  const riskScore = toNumber(decision.pm?.risk_score, scorecard.risk_level === 'low' ? 25 : scorecard.risk_level === 'high' ? 75 : 50);
+                  const riskHealth = Math.max(0, Math.min(100, 100 - riskScore));
+                  return (
                 <ScoreRadar 
                   scores={{
-                    fundamental: 85,
-                    technical: 60,
-                    sentiment: 75,
-                    macro: 50,
-                    risk: decision.pm.confidence === 'High' ? 20 : 80
+                    fundamental: investmentScore,
+                    technical: Math.min(100, valuation * 20),
+                    sentiment: Math.min(100, catalyst * 20),
+                    macro: Math.min(100, macro * 20),
+                    risk: riskHealth
                   }}
                 />
+                  );
+                })()}
               </div>
             </div>
           </div>

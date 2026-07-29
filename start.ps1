@@ -13,19 +13,25 @@ if ($backendInUse) {
 
 # Start Backend
 Write-Host "Starting FastAPI Backend on port $backendPort..." -ForegroundColor Green
-$env:PYTHONPATH="." # Ensure local imports work before starting process
-$backendProcess = Start-Process -FilePath "uvicorn" -ArgumentList "faos.api.server:app", "--port", "$backendPort", "--host", "0.0.0.0" -PassThru -NoNewWindow
+$pythonCmd = if (Test-Path ".\venv\Scripts\python.exe") { ".\venv\Scripts\python.exe" } else { "python" }
+$backendInfo = New-Object System.Diagnostics.ProcessStartInfo
+$backendInfo.FileName = "powershell.exe"
+$backendInfo.Arguments = "-NoExit -Command Set-Location '$PSScriptRoot'; `$env:PYTHONPATH='.'; & '$pythonCmd' -m uvicorn faos.api.server:app --port $backendPort --host 127.0.0.1 --reload"
+$backendInfo.UseShellExecute = $true
+$backendProcess = [System.Diagnostics.Process]::Start($backendInfo)
 
 # Start Frontend
 Write-Host "Starting Vite Frontend on port $frontendPort..." -ForegroundColor Green
-Set-Location -Path ".\frontend"
-$frontendProcess = Start-Process -FilePath "npm.cmd" -ArgumentList "run", "dev" -PassThru -NoNewWindow
-Set-Location -Path ".."
+$frontendInfo = New-Object System.Diagnostics.ProcessStartInfo
+$frontendInfo.FileName = "powershell.exe"
+$frontendInfo.Arguments = "-NoExit -Command Set-Location '$PSScriptRoot\frontend'; npm run dev"
+$frontendInfo.UseShellExecute = $true
+$frontendProcess = [System.Diagnostics.Process]::Start($frontendInfo)
 
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "Services Started Successfully!" -ForegroundColor Green
-Write-Host "Backend API: http://localhost:$backendPort"
+Write-Host "Backend API: http://127.0.0.1:$backendPort"
 Write-Host "Frontend UI: http://localhost:$frontendPort"
 Write-Host "To shut down the servers, run .\stop.ps1" -ForegroundColor Yellow
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -35,4 +41,4 @@ $pids = @{
     BackendPID = $backendProcess.Id
     FrontendPID = $frontendProcess.Id
 }
-$pids | ConvertTo-Json | Out-File -FilePath ".faos.pids"
+$pids | ConvertTo-Json | Out-File -FilePath ".faos.pids" -Encoding utf8

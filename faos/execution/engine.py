@@ -13,11 +13,22 @@ class ExecutionEngine:
     """
     DAG execution engine for FAOS.
     Subscribes to ExecutionPlanGenerated events and schedules/executes PlanNodes.
+
+    Resilience policy:
+    - Each node execution is bounded by ``node_timeout`` seconds.
+    - A failing node is retried up to ``max_retries`` times with exponential
+      backoff (a ``NodeRetrying`` event is published for observability).
+    - If a node still fails after all retries, the task fails fast and any
+      in-flight sibling nodes are cancelled.
     """
-    def __init__(self, event_bus: EventBus, contexts: Dict[str, ExecutionContext], skill_service: SkillService = None):
+    def __init__(self, event_bus: EventBus, contexts: Dict[str, ExecutionContext],
+                 skill_service: SkillService = None,
+                 node_timeout: float = 300.0, max_retries: int = 1):
         self.event_bus = event_bus
         self.contexts = contexts
         self.skill_service = skill_service
+        self.node_timeout = node_timeout
+        self.max_retries = max(0, max_retries)
         self.event_bus.subscribe("ExecutionPlanGenerated", self._handle_plan_generated)
 
     async def _handle_plan_generated(self, event: Event):
@@ -160,18 +171,15 @@ class ExecutionEngine:
         try:
             if not self.skill_service:
                 raise RuntimeError("SkillService is not initialized")
-                
+
             skill_request = SkillRequest(
                 task_id=task_id,
                 parameters=node.parameters or {},
                 context=context
             )
-            
-            response = await self.skill_service.execute_capability(node.capability, skill_request)
-            
-            if response.status == "failed":
-                raise RuntimeError(response.error or f"Skill for {node.capability} failed")
-                
+
+            response = await self._execute_with_retry(task_id, node, skill_request)
+
             output = {"status": "success", "result": response.output}
 
             # Publish NodeCompleted event with context results snapshot
@@ -183,7 +191,7 @@ class ExecutionEngine:
                     "node_id": node.id,
                     "capability": node.capability,
                     "output": output,
-                    "results": dict(context.results)
+                    "results": context.snapshot_results()
                 }
             )
             await self.event_bus.publish(completed_event)
@@ -197,6 +205,48 @@ class ExecutionEngine:
             )
             await self.event_bus.publish(node_failed_event)
             raise e
+
+    async def _execute_with_retry(self, task_id: str, node: PlanNode, skill_request: SkillRequest):
+        """Run the skill bounded by a timeout, retrying transient failures.
+
+        Note: SkillService converts skill exceptions into SkillResponse(status="failed"),
+        so both raised exceptions and failed responses are treated as retryable here.
+        """
+        last_error: Exception = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await asyncio.wait_for(
+                    self.skill_service.execute_capability(node.capability, skill_request),
+                    timeout=self.node_timeout,
+                )
+                if response.status == "failed":
+                    raise RuntimeError(response.error or f"Skill for {node.capability} failed")
+                return response
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                last_error = e
+                if attempt >= self.max_retries:
+                    break
+                delay = min(2 ** attempt, 10)
+                logger.warning(
+                    f"Node {node.id} ({node.capability}) attempt {attempt + 1} failed: {e}. "
+                    f"Retrying in {delay}s..."
+                )
+                await self.event_bus.publish(Event(
+                    type="NodeRetrying",
+                    source="ExecutionEngine",
+                    payload={
+                        "task_id": task_id,
+                        "node_id": node.id,
+                        "capability": node.capability,
+                        "attempt": attempt + 1,
+                        "max_retries": self.max_retries,
+                        "error": str(e),
+                    },
+                ))
+                await asyncio.sleep(delay)
+        raise last_error
 
     def _verify_no_cycles(self, nodes: Dict[str, PlanNode]):
         """Simple topological sort cycle detection."""
