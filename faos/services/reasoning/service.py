@@ -7,11 +7,40 @@ from typing import Any, Dict, Optional, Tuple, Type
 
 from pydantic import BaseModel
 
+import time
 from faos.core.context import ExecutionContext
 from faos.services.reasoning.models import ReasoningRequest, ReasoningResponse
 from faos.services.reasoning.prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
+
+class RateLimiter:
+    """Token-bucket style rate limiter for API requests."""
+    def __init__(self, min_interval: float = 1.5, max_concurrent: int = 3):
+        self._min_interval = min_interval
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._last_request_time = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        await self._semaphore.acquire()
+        async with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_interval:
+                wait_time = self._min_interval - elapsed
+                await asyncio.sleep(wait_time)
+            self._last_request_time = time.monotonic()
+
+    def release(self):
+        self._semaphore.release()
+
+    async def __aenter__(self):
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
 
 class ReasoningService:
@@ -27,6 +56,10 @@ class ReasoningService:
         self.default_model = os.environ.get("FAOS_LLM_MODEL", "gemini-3.5-flash")
         self._client = None
         self.prompt_builder = PromptBuilder()
+        self.rate_limiter = RateLimiter(
+            min_interval=float(os.environ.get("LLM_RATE_LIMIT_INTERVAL", "1.5")),
+            max_concurrent=int(os.environ.get("LLM_RATE_LIMIT_CONCURRENCY", "3"))
+        )
 
         if self.provider == "gemini":
             api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -47,18 +80,50 @@ class ReasoningService:
     async def analyze_context(self, request: ReasoningRequest) -> ReasoningResponse:
         """
         Analyze the given context data and return reasoning insights.
-        Routes to the configured LLM provider.
+        Routes to the configured LLM provider with fallback logic.
         """
         logger.info(f"ReasoningService analyzing context for task {request.task_id}")
 
-        provider = self._resolve_provider(request)
-
-        if provider == "gemini":
-            return await self._call_gemini(request)
-        elif provider in ("deepseek", "openrouter"):
-            return await self._call_openai_compatible(request, provider)
-        else:
+        initial_provider = self._resolve_provider(request)
+        
+        # Determine fallback chain based on initial provider
+        fallback_chain = [initial_provider]
+        if initial_provider == "deepseek":
+            fallback_chain.extend(["openrouter", "gemini"])
+        elif initial_provider == "openrouter":
+            fallback_chain.extend(["deepseek", "gemini"])
+        elif initial_provider == "gemini":
+            fallback_chain.extend(["openrouter", "deepseek"])
+            
+        # Mock is always terminal
+        if initial_provider == "mock":
             return await self._call_mock(request)
+
+        for provider in fallback_chain:
+            logger.info(f"Trying provider: {provider}")
+            try:
+                if provider == "gemini":
+                    resp = await self._call_gemini(request)
+                elif provider in ("deepseek", "openrouter"):
+                    resp = await self._call_openai_compatible(request, provider)
+                else:
+                    resp = await self._call_mock(request)
+                    
+                # Basic quality gate
+                if "[LLM Error]" not in resp.raw_response:
+                    return resp
+                else:
+                    logger.warning(f"Provider {provider} returned error response, falling back...")
+            except Exception as e:
+                logger.warning(f"Provider {provider} raised exception: {e}, falling back...")
+
+        return ReasoningResponse(
+            task_id=request.task_id,
+            insights={},
+            confidence=0.0,
+            raw_response="[LLM Error] All available LLM providers failed.",
+            usage={}
+        )
 
     def _resolve_provider(self, request: ReasoningRequest) -> str:
         """Resolve the effective provider for a request (per-request override wins)."""
@@ -302,13 +367,14 @@ class ReasoningService:
 
         for attempt in range(max_retries + 1):
             try:
-                # Run the synchronous SDK call in a thread to avoid blocking the event loop
-                response = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model=model,
-                    contents=contents,
-                    config=config,
-                )
+                async with self.rate_limiter:
+                    # Run the synchronous SDK call in a thread to avoid blocking the event loop
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=model,
+                        contents=contents,
+                        config=config,
+                    )
 
                 raw_text = response.text or ""
 
@@ -432,7 +498,8 @@ class ReasoningService:
                     create_kwargs: Dict[str, Any] = {"model": model, "messages": messages}
                     if request.json_mode:
                         create_kwargs["response_format"] = {"type": "json_object"}
-                    response = await client.chat.completions.create(**create_kwargs)
+                    async with self.rate_limiter:
+                        response = await client.chat.completions.create(**create_kwargs)
                     break
                 except Exception as e:
                     error_str = str(e)
