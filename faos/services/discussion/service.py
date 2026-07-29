@@ -8,15 +8,7 @@ from faos.services.discussion.models import (
     BULL_CASE_JSON_HINT, BEAR_CASE_JSON_HINT, DEBATE_JUDGMENT_JSON_HINT,
     RISK_GUARD_JSON_HINT,
 )
-from faos.services.discussion.prompts import (
-    BULL_RESEARCHER_PROMPT,
-    BEAR_RESEARCHER_PROMPT,
-    RESEARCH_MANAGER_PROMPT,
-    AGGRESSIVE_RISK_PROMPT,
-    CONSERVATIVE_RISK_PROMPT,
-    NEUTRAL_RISK_PROMPT,
-    CHIEF_RISK_OFFICER_PROMPT
-)
+from faos.services.prompting import registry
 from faos.services.reasoning.service import ReasoningService
 from faos.services.reasoning.models import ReasoningRequest
 
@@ -37,10 +29,11 @@ class DiscussionService:
         
         try:
             # Stage 1a: Bull Researcher -> numbered, attackable Claims
+            bull_prompt = registry.get_template("bull_researcher", lang)
             bull_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=dict(request.context_data),
-                prompt=BULL_RESEARCHER_PROMPT,
+                prompt=bull_prompt,
                 llm_config=request.llm_config
             )
             bull_case, bull_raw = await self.reasoning.analyze_structured(
@@ -62,10 +55,11 @@ class DiscussionService:
             bear_context = dict(request.context_data)
             bear_context["bull_claims"] = [c.model_dump() for c in bull_case.claims]
             bear_context["bull_summary"] = bull_case.summary
+            bear_prompt = registry.get_template("bear_researcher", lang)
             bear_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=bear_context,
-                prompt=BEAR_RESEARCHER_PROMPT,
+                prompt=bear_prompt,
                 llm_config=request.llm_config
             )
             bear_case, bear_raw = await self.reasoning.analyze_structured(
@@ -92,10 +86,12 @@ class DiscussionService:
                 "bear_summary": bear_case.summary,
                 "user_parameters": request.context_data.get("user_parameters", {}),
             }
+            # The manager in ALSA is the professional_reviewer / critic
+            mgr_prompt = registry.get_template("professional_reviewer", lang)
             mgr_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=judge_context,
-                prompt=RESEARCH_MANAGER_PROMPT,
+                prompt=mgr_prompt,
                 llm_config=request.llm_config
             )
             judgment, mgr_raw = await self.reasoning.analyze_structured(
@@ -116,9 +112,9 @@ class DiscussionService:
             risk_context["investment_plan"] = investment_plan
             
             risk_opinions = await self._run_parallel_agents(request, {
-                "Aggressive Risk Debator": AGGRESSIVE_RISK_PROMPT,
-                "Conservative Risk Debator": CONSERVATIVE_RISK_PROMPT,
-                "Neutral Risk Debator": NEUTRAL_RISK_PROMPT
+                "Aggressive Risk Debator": registry.get_template("aggressive_risk_analyst", lang),
+                "Conservative Risk Debator": registry.get_template("conservative_risk_analyst", lang),
+                "Neutral Risk Debator": registry.get_template("neutral_risk_analyst", lang)
             }, base_context=risk_context)
             opinions.extend(risk_opinions)
             
@@ -126,10 +122,11 @@ class DiscussionService:
             risk_debate_context = risk_context.copy()
             risk_debate_context["risk_debate"] = "\n".join([o.opinion for o in risk_opinions])
             
+            cro_prompt = registry.get_template("chief_audit_officer", lang)
             cro_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=risk_debate_context,
-                prompt=CHIEF_RISK_OFFICER_PROMPT,
+                prompt=cro_prompt,
                 llm_config=request.llm_config
             )
             risk_guard, cro_raw = await self.reasoning.analyze_structured(

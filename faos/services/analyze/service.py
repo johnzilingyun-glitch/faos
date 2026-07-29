@@ -1,11 +1,6 @@
 import asyncio
 from faos.services.analyze.models import AnalyzeRequest, AnalyzeResponse
-from faos.services.analyze.prompts import (
-    FUNDAMENTAL_ANALYST_PROMPT,
-    MARKET_ANALYST_PROMPT,
-    NEWS_ANALYST_PROMPT,
-    SENTIMENT_ANALYST_PROMPT
-)
+from faos.services.prompting import registry
 from faos.services.reasoning.service import ReasoningService
 from faos.services.reasoning.models import ReasoningRequest
 from faos.services.reasoning.schemas import AnalystReport, ANALYST_REPORT_JSON_HINT
@@ -15,16 +10,31 @@ from faos.services.security.guardrail import check_guardrails
 class AnalyzeService:
     def __init__(self, reasoning_service: ReasoningService):
         self.reasoning_service = reasoning_service
-        self.analysts = {
-            "Fundamental Analyst": FUNDAMENTAL_ANALYST_PROMPT,
-            "Technical Analyst": MARKET_ANALYST_PROMPT,
-            "News Analyst": NEWS_ANALYST_PROMPT,
-            "Sentiment Analyst": SENTIMENT_ANALYST_PROMPT
-        }
+        # Default analysts to run if not specified otherwise
+        self.default_analysts = [
+            "fundamental_analyst",
+            "technical_analyst", 
+            "news_analyst",
+            "sentiment_analyst"
+        ]
 
     async def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
         tasks = []
-        for name, prompt in self.analysts.items():
+        user_params = request.context_data.get("user_parameters", {}) or {}
+        lang = user_params.get("language", "zh")
+        
+        # In a fully dynamic system, this could be read from user_params
+        analysts_to_run = self.default_analysts
+        
+        for role_name in analysts_to_run:
+            try:
+                # Load prompt template from registry, appending the structural JSON hint
+                prompt = registry.get_template(role_name, language=lang)
+            except FileNotFoundError:
+                import logging
+                logging.getLogger(__name__).warning(f"Template for {role_name} not found. Skipping.")
+                continue
+                
             # Each analyst gets its own shallow copy so PromptBuilder can safely
             # pop fact_sheet/user_parameters without affecting the others.
             req = ReasoningRequest(
@@ -33,7 +43,7 @@ class AnalyzeService:
                 prompt=prompt,
                 llm_config=request.llm_config
             )
-            tasks.append(self._run_analyst(name, req))
+            tasks.append(self._run_analyst(role_name, req))
             
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
