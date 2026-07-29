@@ -348,7 +348,8 @@ class ReasoningService:
         # Build the user message from context data
         user_message = self.prompt_builder.build_user_prompt(
             intent=request.prompt or "Analyze the provided context.",
-            context_data=request.context_data
+            context_data=request.context_data,
+            is_rendered=request.is_rendered
         )
 
         # Build contents list
@@ -356,7 +357,8 @@ class ReasoningService:
         
         from google.genai import types
         config_kwargs: Dict[str, Any] = {}
-        if request.prompt:
+        # If the prompt is already fully rendered (Jinja), it's in user_message. Don't duplicate it in system_instruction.
+        if request.prompt and not request.is_rendered:
             config_kwargs["system_instruction"] = request.prompt
         if request.json_mode:
             config_kwargs["response_mime_type"] = "application/json"
@@ -482,10 +484,11 @@ class ReasoningService:
             
             user_message = self.prompt_builder.build_user_prompt(
                 intent=request.prompt or "Analyze the provided context.",
-                context_data=request.context_data
+                context_data=request.context_data,
+                is_rendered=request.is_rendered
             )
             messages = []
-            if request.prompt:
+            if request.prompt and not request.is_rendered:
                 messages.append({"role": "system", "content": request.prompt})
                 messages.append({"role": "user", "content": user_message})
             else:

@@ -29,15 +29,21 @@ class DiscussionService:
         
         try:
             # Stage 1a: Bull Researcher -> numbered, attackable Claims
-            bull_prompt = registry.get_template("bull_researcher", lang)
+            bull_prompt = registry.render_prompt(
+                "bull_researcher", 
+                context_data=request.context_data, 
+                language=lang,
+                json_hint=BULL_CASE_JSON_HINT
+            )
             bull_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=dict(request.context_data),
                 prompt=bull_prompt,
-                llm_config=request.llm_config
+                llm_config=request.llm_config,
+                is_rendered=True
             )
             bull_case, bull_raw = await self.reasoning.analyze_structured(
-                bull_req, BullCase, BULL_CASE_JSON_HINT
+                bull_req, BullCase
             )
             if bull_case is None:
                 bull_case = BullCase(summary=bull_raw)
@@ -55,15 +61,21 @@ class DiscussionService:
             bear_context = dict(request.context_data)
             bear_context["bull_claims"] = [c.model_dump() for c in bull_case.claims]
             bear_context["bull_summary"] = bull_case.summary
-            bear_prompt = registry.get_template("bear_researcher", lang)
+            bear_prompt = registry.render_prompt(
+                "bear_researcher", 
+                context_data=bear_context, 
+                language=lang,
+                json_hint=BEAR_CASE_JSON_HINT
+            )
             bear_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=bear_context,
                 prompt=bear_prompt,
-                llm_config=request.llm_config
+                llm_config=request.llm_config,
+                is_rendered=True
             )
             bear_case, bear_raw = await self.reasoning.analyze_structured(
-                bear_req, BearCase, BEAR_CASE_JSON_HINT
+                bear_req, BearCase
             )
             if bear_case is None:
                 bear_case = BearCase(summary=bear_raw)
@@ -87,15 +99,21 @@ class DiscussionService:
                 "user_parameters": request.context_data.get("user_parameters", {}),
             }
             # The manager in ALSA is the professional_reviewer / critic
-            mgr_prompt = registry.get_template("professional_reviewer", lang)
+            mgr_prompt = registry.render_prompt(
+                "professional_reviewer", 
+                context_data=judge_context, 
+                language=lang,
+                json_hint=DEBATE_JUDGMENT_JSON_HINT
+            )
             mgr_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=judge_context,
                 prompt=mgr_prompt,
-                llm_config=request.llm_config
+                llm_config=request.llm_config,
+                is_rendered=True
             )
             judgment, mgr_raw = await self.reasoning.analyze_structured(
-                mgr_req, DebateJudgment, DEBATE_JUDGMENT_JSON_HINT
+                mgr_req, DebateJudgment
             )
             if judgment is None:
                 judgment = DebateJudgment(investment_plan=mgr_raw)
@@ -112,9 +130,9 @@ class DiscussionService:
             risk_context["investment_plan"] = investment_plan
             
             risk_opinions = await self._run_parallel_agents(request, {
-                "Aggressive Risk Debator": registry.get_template("aggressive_risk_analyst", lang),
-                "Conservative Risk Debator": registry.get_template("conservative_risk_analyst", lang),
-                "Neutral Risk Debator": registry.get_template("neutral_risk_analyst", lang)
+                "Aggressive Risk Debator": registry.render_prompt("aggressive_risk_analyst", context_data=risk_context, language=lang),
+                "Conservative Risk Debator": registry.render_prompt("conservative_risk_analyst", context_data=risk_context, language=lang),
+                "Neutral Risk Debator": registry.render_prompt("neutral_risk_analyst", context_data=risk_context, language=lang)
             }, base_context=risk_context)
             opinions.extend(risk_opinions)
             
@@ -122,15 +140,21 @@ class DiscussionService:
             risk_debate_context = risk_context.copy()
             risk_debate_context["risk_debate"] = "\n".join([o.opinion for o in risk_opinions])
             
-            cro_prompt = registry.get_template("chief_audit_officer", lang)
+            cro_prompt = registry.render_prompt(
+                "chief_audit_officer", 
+                context_data=risk_debate_context, 
+                language=lang,
+                json_hint=RISK_GUARD_JSON_HINT
+            )
             cro_req = ReasoningRequest(
                 task_id=request.task_id,
                 context_data=risk_debate_context,
                 prompt=cro_prompt,
-                llm_config=request.llm_config
+                llm_config=request.llm_config,
+                is_rendered=True
             )
             risk_guard, cro_raw = await self.reasoning.analyze_structured(
-                cro_req, RiskGuard, RISK_GUARD_JSON_HINT
+                cro_req, RiskGuard
             )
             if risk_guard is None:
                 risk_guard = RiskGuard(notes=cro_raw)
@@ -164,7 +188,8 @@ class DiscussionService:
                 task_id=request.task_id,
                 context_data=context,
                 prompt=prompt,
-                llm_config=request.llm_config
+                llm_config=request.llm_config,
+                is_rendered=True
             )
             tasks.append(self.reasoning.analyze_context(req))
             keys.append(name)

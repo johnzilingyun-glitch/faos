@@ -29,7 +29,12 @@ class AnalyzeService:
         for role_name in analysts_to_run:
             try:
                 # Load prompt template from registry, appending the structural JSON hint
-                prompt = registry.get_template(role_name, language=lang)
+                prompt = registry.render_prompt(
+                    role_name, 
+                    context_data=request.context_data, 
+                    language=lang,
+                    json_hint=ANALYST_REPORT_JSON_HINT
+                )
             except FileNotFoundError:
                 import logging
                 logging.getLogger(__name__).warning(f"Template for {role_name} not found. Skipping.")
@@ -41,7 +46,8 @@ class AnalyzeService:
                 task_id=request.task_id,
                 context_data=dict(request.context_data),
                 prompt=prompt,
-                llm_config=request.llm_config
+                llm_config=request.llm_config,
+                is_rendered=True
             )
             tasks.append(self._run_analyst(role_name, req))
             
@@ -66,7 +72,7 @@ class AnalyzeService:
     async def _run_analyst(self, name: str, req: ReasoningRequest):
         lang = (req.context_data.get("user_parameters", {}) or {}).get("language", "zh")
         report, raw = await self.reasoning_service.analyze_structured(
-            req, AnalystReport, ANALYST_REPORT_JSON_HINT
+            req, AnalystReport
         )
         if report is None:
             # Structured parse failed: degrade gracefully, keep the raw text.

@@ -50,10 +50,14 @@ class PromptBuilder:
             
         return "\n".join(prompt)
         
-    def build_user_prompt(self, intent: str, context_data: Dict[str, Any]) -> str:
+    def build_user_prompt(self, intent: str, context_data: Dict[str, Any], is_rendered: bool = False) -> str:
         """
         Builds the user prompt combining the specific intent and the provided context/evidence.
+        If is_rendered is True, assumes intent already contains the fully assembled prompt.
         """
+        if is_rendered:
+            return intent
+            
         prompt = [
             "# Task Intent / Role Instruction",
             intent,
