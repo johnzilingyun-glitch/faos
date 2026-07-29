@@ -210,25 +210,25 @@ class PlannerPipeline:
         workflow_id = planner_result.workflow_id or "AnalyzeStockWorkflow"
         params = planner_result.parameters or {"symbol": "AAPL"}
 
-        workflow_def = self.workflow_service.get_workflow(workflow_id)
-        if not workflow_def:
-            logger.warning(f"Workflow '{workflow_id}' not found, falling back to 'AnalyzeStockWorkflow'")
-            workflow_id = "AnalyzeStockWorkflow"
+        if workflow_id == "AnalyzeStockWorkflow":
+            plan_nodes = self._build_dynamic_stock_plan(params)
+        else:
             workflow_def = self.workflow_service.get_workflow(workflow_id)
             if not workflow_def:
-                logger.error("Fallback Workflow 'AnalyzeStockWorkflow' not found.")
-                return
-
-        # Execution Plan Generation
-        plan_nodes = []
-        for w_node in workflow_def.nodes:
-            node_params = params.copy()
-            plan_nodes.append(PlanNode(
-                id=w_node.id,
-                capability=w_node.capability,
-                parameters=node_params,
-                dependencies=w_node.dependencies
-            ))
+                logger.warning(f"Workflow '{workflow_id}' not found, falling back to 'AnalyzeStockWorkflow'")
+                workflow_id = "AnalyzeStockWorkflow"
+                plan_nodes = self._build_dynamic_stock_plan(params)
+            else:
+                # Execution Plan Generation for Static Workflows
+                plan_nodes = []
+                for w_node in workflow_def.nodes:
+                    node_params = params.copy()
+                    plan_nodes.append(PlanNode(
+                        id=w_node.id,
+                        capability=w_node.capability,
+                        parameters=node_params,
+                        dependencies=w_node.dependencies
+                    ))
 
         plan = ExecutionPlan(
             task_id=task_id,
@@ -243,3 +243,41 @@ class PlannerPipeline:
 
         await self.event_bus.publish(plan_event)
         logger.info(f"Planner generated ExecutionPlan for Task {task_id} using {workflow_id}")
+
+    def _build_dynamic_stock_plan(self, params: Dict[str, Any]) -> List[PlanNode]:
+        """
+        Dynamically construct the AnalyzeStock DAG based on the target market.
+        Brings ALSA-style 'market awareness' and dynamic capabilities.
+        """
+        from faos.execution.market_detector import detect_market
+        symbol = params.get("symbol", "AAPL")
+        market = detect_market(symbol)
+        
+        node_params = params.copy()
+        node_params["market"] = market
+        
+        # Inject ALSA-inspired specific analytical focuses
+        market_focus = {
+            "A-Share": "重点关注国内宏观政策导向、监管动态以及零售资金情绪 (Focus on domestic macro policy, regulations, and retail sentiment).",
+            "HK-Share": "重点关注南向/外资流动性、地缘政治风险以及高股息特征 (Focus on liquidity, geopolitical risks, and dividend yield).",
+            "US-Share": "重点关注美联储宏观利率、企业盈利增长以及技术创新周期 (Focus on Fed rates, earnings growth, and tech cycles)."
+        }.get(market, "")
+        
+        if market_focus:
+            node_params["market_focus"] = market_focus
+
+        nodes = []
+        # Parallel data prefetch (Data and News)
+        nodes.append(PlanNode(id="node1", capability="cap.fetch_data", parameters=node_params, dependencies=[]))
+        nodes.append(PlanNode(id="node2", capability="cap.fetch_news", parameters=node_params, dependencies=[]))
+        
+        # Merge at Analyze
+        nodes.append(PlanNode(id="node3", capability="cap.analyze", parameters=node_params, dependencies=["node1", "node2"]))
+        
+        # Follow-up standard pipeline
+        nodes.append(PlanNode(id="node_discuss", capability="cap.discuss", parameters=node_params, dependencies=["node3"]))
+        nodes.append(PlanNode(id="node_decision", capability="cap.decision", parameters=node_params, dependencies=["node_discuss"]))
+        nodes.append(PlanNode(id="node_reflection", capability="cap.reflection", parameters=node_params, dependencies=["node_decision"]))
+        nodes.append(PlanNode(id="node4", capability="cap.report", parameters=node_params, dependencies=["node_reflection"]))
+        
+        return nodes
