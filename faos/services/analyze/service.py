@@ -9,6 +9,8 @@ from faos.services.analyze.prompts import (
 from faos.services.reasoning.service import ReasoningService
 from faos.services.reasoning.models import ReasoningRequest
 from faos.services.reasoning.schemas import AnalystReport, ANALYST_REPORT_JSON_HINT
+from faos.services.security.grounding import verify_and_annotate
+from faos.services.security.guardrail import check_guardrails
 
 class AnalyzeService:
     def __init__(self, reasoning_service: ReasoningService):
@@ -59,7 +61,26 @@ class AnalyzeService:
         if report is None:
             # Structured parse failed: degrade gracefully, keep the raw text.
             report = AnalystReport(summary=raw)
+            
         report.role = name
+        
+        # 1. Output Guardrail (Logic interception)
+        guard_res = check_guardrails(report)
+        if guard_res.action == "block":
+            import logging
+            logging.getLogger(__name__).warning(f"Guardrail blocked output from {name}: {guard_res.reason}")
+            # Rewrite the summary with the block message
+            report.summary = (
+                f"> [!CAUTION]\n> **[FAOS Guardrail Blocked]** 该分析结论未通过安全校验，已被强行拦截。\n"
+                f"> **拦截原因**: {guard_res.reason}\n\n"
+                f"~~{report.summary}~~"
+            )
+            report.action = "watch" # Downgrade action
+            
+        # 2. Grounding Verifier (Anti-hallucination)
+        fact_sheet = req.context_data.get("fact_sheet", {})
+        report.summary = verify_and_annotate(report.summary, fact_sheet)
+
         return {
             "name": name,
             "structured": report,
