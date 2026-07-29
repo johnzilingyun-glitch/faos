@@ -93,7 +93,9 @@ class TaskRuntime:
             # Register real providers (Priority 100)
             from faos.services.provider.yfinance_impl import YFinanceQuoteProvider, YFinanceNewsProvider
             from faos.services.provider.websearch_impl import WebSearchProvider
+            from faos.services.provider.a_stock_provider import AStockDirectProvider
 
+            self.provider_service.register_provider(AStockDirectProvider())
             self.provider_service.register_provider(YFinanceQuoteProvider())
             self.provider_service.register_provider(YFinanceNewsProvider())
             self.provider_service.register_provider(WebSearchProvider())

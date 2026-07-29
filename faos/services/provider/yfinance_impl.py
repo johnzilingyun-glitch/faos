@@ -6,25 +6,9 @@ from typing import Dict, Any, List
 
 from faos.services.provider.base import BaseProvider
 from faos.services.provider.models import ProviderManifest, ProviderRequest, ProviderResponse
+from faos.services.provider.polars_indicators import compute_indicators
 
 logger = logging.getLogger(__name__)
-
-def calculate_rsi(data: pd.Series, periods=14):
-    delta = data.diff()
-    up, down = delta.copy(), delta.copy()
-    up[up < 0] = 0
-    down[down > 0] = 0
-    roll_up = up.ewm(com=periods - 1, adjust=False).mean()
-    roll_down = down.ewm(com=periods - 1, adjust=False).mean().abs()
-    rs = roll_up / roll_down
-    return 100 - (100 / (1 + rs))
-
-def calculate_macd(data: pd.Series, fast=12, slow=26, signal=9):
-    exp1 = data.ewm(span=fast, adjust=False).mean()
-    exp2 = data.ewm(span=slow, adjust=False).mean()
-    macd = exp1 - exp2
-    signal_line = macd.ewm(span=signal, adjust=False).mean()
-    return macd, signal_line
 
 POS_WORDS = ["surge", "jump", "record", "profit", "growth", "buy", "upgrade", "outperform", "expand", "dividend", "beat", "positive", "strong"]
 NEG_WORDS = ["drop", "fall", "loss", "decline", "sell", "downgrade", "underperform", "shrink", "cut", "miss", "negative", "weak", "lawsuit", "penalty"]
@@ -110,13 +94,11 @@ class YFinanceQuoteProvider(BaseProvider):
             volume = info.get("volume") or info.get("regularMarketVolume")
             
             # Calculate Technical Indicators
-            rsi_latest = None
-            macd_latest = None
+            technical_indicators = {}
             if not hist.empty and len(hist) > 26:
-                rsi = calculate_rsi(hist["Close"])
-                macd, signal_line = calculate_macd(hist["Close"])
-                rsi_latest = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else None
-                macd_latest = float(macd.iloc[-1]) if not pd.isna(macd.iloc[-1]) else None
+                # Need Date, Open, High, Low, Close, Volume for Polars
+                pdf = hist.reset_index()
+                technical_indicators = compute_indicators(pdf)
 
             # Fetch Comprehensive Financials
             def get_latest(df, key):
@@ -179,10 +161,7 @@ class YFinanceQuoteProvider(BaseProvider):
                 "eps": eps,
                 "sector": sector,
                 "industry": industry,
-                "technical_indicators": {
-                    "RSI_14": rsi_latest,
-                    "MACD": macd_latest
-                },
+                "technical_indicators": technical_indicators,
                 "financials_summary": financials_summary,
                 "analyst_recommendations": analyst_recommendations,
                 "analyst_estimates": {

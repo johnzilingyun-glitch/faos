@@ -3,7 +3,7 @@ from typing import List
 
 from faos.services.provider.service import ProviderService
 from faos.services.provider.models import ProviderRequest, ProviderResponse
-
+from faos.services.provider.data_router import DataRouter
 logger = logging.getLogger(__name__)
 
 class DataRouteService:
@@ -13,6 +13,7 @@ class DataRouteService:
     """
     def __init__(self, provider_service: ProviderService):
         self.provider_service = provider_service
+        self.market_router = DataRouter(provider_service)
         logger.info("DataRouteService initialized")
 
     async def fetch_data(self, category: str, request: ProviderRequest) -> ProviderResponse:
@@ -21,6 +22,10 @@ class DataRouteService:
         """
         logger.info(f"DataRoute requested for category: {category}, entity: {request.entity}")
         
+        # Use market-aware router for market data requests
+        if category == "market":
+            return await self.market_router.fetch(request)
+            
         # 1. Find all providers matching the category
         matched_providers = []
         for p in self.provider_service.providers.values():
