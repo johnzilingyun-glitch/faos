@@ -113,7 +113,16 @@ class ClaimVerdict(BaseModel):
     rationale: str = Field(default="")
 
 
+class Disagreement(BaseModel):
+    topic: str = Field(default="")
+    bull_position: str = Field(default="")
+    bear_position: str = Field(default="")
+    potential_impact: str = Field(default="", description="Impact on investment")
+
 class DebateJudgment(BaseModel):
+    consensus_points: List[str] = Field(default_factory=list, description="Agreed points")
+    major_disagreements: List[Disagreement] = Field(default_factory=list, description="Core disagreements")
+    data_conflicts: List[str] = Field(default_factory=list, description="Conflicting data cited")
     verdicts: List[ClaimVerdict] = Field(default_factory=list)
     overall_winner: str = Field(default="tie", description="'bull' | 'bear' | 'tie'")
     overall_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -134,6 +143,29 @@ class DebateJudgment(BaseModel):
             "tie": ("平局" if zh else "Tie"),
         }
         lines: List[str] = []
+
+        # Render Critic Sections
+        if self.consensus_points:
+            lines.append(f"**{'核心共识' if zh else 'Consensus Points'}**")
+            for cp in self.consensus_points:
+                lines.append(f"- {cp}")
+            lines.append("")
+            
+        if self.major_disagreements:
+            lines.append(f"**{'关键分歧点' if zh else 'Major Disagreements'}**")
+            for d in self.major_disagreements:
+                lines.append(f"- **{d.topic}**")
+                lines.append(f"  - 多头: {d.bull_position}")
+                lines.append(f"  - 空头: {d.bear_position}")
+                lines.append(f"  - 影响: {d.potential_impact}")
+            lines.append("")
+            
+        if self.data_conflicts:
+            lines.append(f"**{'数据冲突' if zh else 'Data Conflicts'}**")
+            for dc in self.data_conflicts:
+                lines.append(f"- <mark>⚠️ {dc}</mark>")
+            lines.append("")
+
         if self.verdicts:
             lines.append(f"**{L['verdict']}**")
             for v in self.verdicts:
@@ -170,6 +202,9 @@ BEAR_CASE_JSON_HINT = (
 
 DEBATE_JUDGMENT_JSON_HINT = (
     '{\n'
+    '  "consensus_points": [str],\n'
+    '  "major_disagreements": [{"topic": str, "bull_position": str, "bear_position": str, "potential_impact": str}],\n'
+    '  "data_conflicts": [str],\n'
     '  "verdicts": [{"claim_id": "C1", "winner": "bull|bear|tie", '
     '"bull_confidence": 0.0-1.0, "bear_confidence": 0.0-1.0, "rationale": str}],\n'
     '  "overall_winner": "bull|bear|tie",\n'
