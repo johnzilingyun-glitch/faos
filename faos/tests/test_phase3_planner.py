@@ -30,13 +30,13 @@ async def test_dynamic_planner_generation():
     # 1. Test US Stock
     us_nodes = planner._build_dynamic_stock_plan({"symbol": "NVDA"})
     
-    us_node_analyze = next(n for n in us_nodes if n.id == "node3")
+    us_node_analyze = next(n for n in us_nodes if n.id == "node3_s1")
     assert us_node_analyze.parameters["market"] == "US-Share"
     assert "Fed rates" in us_node_analyze.parameters["market_focus"] or "企业盈利" in us_node_analyze.parameters["market_focus"]
 
     # 2. Test A-Share
     cn_nodes = planner._build_dynamic_stock_plan({"symbol": "600519.SS"})
-    cn_node_analyze = next(n for n in cn_nodes if n.id == "node3")
+    cn_node_analyze = next(n for n in cn_nodes if n.id == "node3_s1")
     assert cn_node_analyze.parameters["market"] == "A-Share"
     assert "国内宏观" in cn_node_analyze.parameters["market_focus"]
 
@@ -47,6 +47,6 @@ async def test_dynamic_planner_generation():
     assert not fetch_data.dependencies
     assert not fetch_news.dependencies
     
-    # analyze (node3) should depend on both
+    # analyze (node3_s1) should depend on both
     assert "node1" in cn_node_analyze.dependencies
     assert "node2" in cn_node_analyze.dependencies

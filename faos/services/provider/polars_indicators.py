@@ -6,7 +6,6 @@ for time-series operations.
 """
 
 import logging
-import polars as pl
 import pandas as pd
 from typing import Dict, Any
 
@@ -17,10 +16,23 @@ def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     Compute technical indicators using Polars for high performance.
     Expects a pandas DataFrame with Date, Open, High, Low, Close, Volume.
     Returns a dictionary of the latest indicator values.
+
+    Polars is an optional, undeclared dependency: if it is not installed the
+    server still starts and the quote provider degrades gracefully (no extra
+    technical indicators) instead of crashing at import time.
     """
     if df is None or df.empty or len(df) < 30:
         return {}
-        
+
+    try:
+        import polars as pl
+    except ImportError:
+        logger.warning(
+            "polars not installed; skipping technical indicators. "
+            "Install with: pip install polars"
+        )
+        return {}
+
     try:
         # Convert pandas to polars (reset index if Date is index)
         if "Date" not in df.columns and isinstance(df.index, pd.DatetimeIndex):

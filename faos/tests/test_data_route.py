@@ -11,7 +11,7 @@ def mock_providers():
     high_priority_provider.manifest = ProviderManifest(
         id="high_priority",
         name="High Priority Provider",
-        category="market",
+        category="news",
         priority=100
     )
     
@@ -19,7 +19,7 @@ def mock_providers():
     low_priority_provider.manifest = ProviderManifest(
         id="low_priority",
         name="Low Priority Provider",
-        category="market",
+        category="news",
         priority=10
     )
     return high_priority_provider, low_priority_provider
@@ -38,7 +38,7 @@ async def test_data_route_priority_routing(mock_providers):
     provider_service.fetch_data = AsyncMock(return_value=ProviderResponse(status="success", data={"price": 100}))
     
     request = ProviderRequest(entity="AAPL")
-    response = await data_route.fetch_data("market", request)
+    response = await data_route.fetch_data("news", request)
     
     assert response.status == "success"
     assert response.data["price"] == 100
@@ -65,7 +65,7 @@ async def test_data_route_fallback(mock_providers):
     provider_service.fetch_data = AsyncMock(side_effect=mock_fetch_data)
     
     request = ProviderRequest(entity="AAPL")
-    response = await data_route.fetch_data("market", request)
+    response = await data_route.fetch_data("news", request)
     
     assert response.status == "success"
     assert response.data["price"] == 50
@@ -86,7 +86,7 @@ async def test_data_route_all_fail(mock_providers):
     provider_service.fetch_data = AsyncMock(return_value=ProviderResponse(status="failed", error="Error"))
     
     request = ProviderRequest(entity="AAPL")
-    response = await data_route.fetch_data("market", request)
+    response = await data_route.fetch_data("news", request)
     
     assert response.status == "failed"
-    assert "All providers for category 'market' failed" in response.error
+    assert "All providers for category 'news' failed" in response.error

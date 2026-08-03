@@ -44,7 +44,7 @@ class TaskRuntime:
         self.knowledge_service = KnowledgeService()
 
         from faos.services.reasoning.service import ReasoningService
-        self.reasoning = ReasoningService()
+        self.reasoning = ReasoningService(event_bus=self.event_bus)
 
         self._register_default_services()
 
@@ -65,12 +65,27 @@ class TaskRuntime:
 
         self._validate_capabilities()
 
+        # Auto-persist finished analysis tasks into SQLite history
+        # (event-driven; disable with FAOS_AUTO_PERSIST=0).
+        self.history_auto_persist = None
+        if self.settings.history_auto_persist:
+            from faos.services.history.auto_persist import HistoryAutoPersistService
+            self.history_auto_persist = HistoryAutoPersistService(
+                event_bus=self.event_bus,
+                contexts=self.contexts,
+                active_tasks=self.active_tasks,
+            )
+
         self._running = False
 
         # Subscribe to internal lifecycle events
         self.event_bus.subscribe("TaskSubmitted", self._handle_task_submitted)
         self.event_bus.subscribe("TaskCompleted", self._handle_task_completed)
         self.event_bus.subscribe("TaskFailed", self._handle_task_failed)
+
+        # Initialize CronManager
+        from faos.core.cron import CronManager
+        self.cron_manager = CronManager(self)
 
     # ── Service wiring ──────────────────────────────────────────────
 
@@ -124,7 +139,9 @@ class TaskRuntime:
         from faos.services.skill.impl import DiscussSkill
         self.skill_service.register_skill(DiscussSkill(discussion_service=self.discussion_service))
 
-        self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service))
+        from faos.services.portfolio.service import PortfolioService
+        self.portfolio_service = PortfolioService()
+        self.skill_service.register_skill(DecisionSkill(decision_service=self.decision_service, portfolio_service=self.portfolio_service))
 
         from faos.services.reflection.service import ReflectionService
         from faos.services.skill.impl import ReflectionSkill
@@ -139,13 +156,24 @@ class TaskRuntime:
         self.report_service = ReportService()
         self.skill_service.register_skill(GenerateReportSkill(report_service=self.report_service))
 
+        from faos.services.skill.sector_scan import SectorScanSkill, BatchFetchDataSkill, CompareStocksSkill
+        self.skill_service.register_skill(SectorScanSkill(reasoning_service=self.reasoning))
+        self.skill_service.register_skill(BatchFetchDataSkill(data_route=self.data_route))
+        self.skill_service.register_skill(CompareStocksSkill(reasoning_service=self.reasoning))
+
         from faos.services.workflow.service import WorkflowService
-        from faos.services.workflow.standard import get_analyze_stock_workflow, get_news_summary_workflow, get_backtest_workflow
+        from faos.services.workflow.standard import (
+            get_analyze_stock_workflow,
+            get_news_summary_workflow,
+            get_backtest_workflow,
+            get_sector_scan_workflow
+        )
 
         self.workflow_service = WorkflowService()
         self.workflow_service.register_workflow(get_analyze_stock_workflow())
         self.workflow_service.register_workflow(get_news_summary_workflow())
         self.workflow_service.register_workflow(get_backtest_workflow())
+        self.workflow_service.register_workflow(get_sector_scan_workflow())
 
         # Capability catalog mirrors the Skill registry (single source of truth).
         from faos.services.capability.service import CapabilityService
@@ -188,6 +216,8 @@ class TaskRuntime:
         if not self._running:
             self._running = True
             self.event_bus.start()
+            if hasattr(self, 'cron_manager'):
+                self.cron_manager.start()
             logger.info("TaskRuntime started")
 
     async def stop(self):
@@ -198,6 +228,8 @@ class TaskRuntime:
                 task.cancel()
             if self._gc_tasks:
                 await asyncio.gather(*self._gc_tasks, return_exceptions=True)
+            if hasattr(self, 'cron_manager'):
+                self.cron_manager.stop()
             await self.event_bus.stop()
             logger.info("TaskRuntime stopped")
 

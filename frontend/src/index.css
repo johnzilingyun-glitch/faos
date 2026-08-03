@@ -757,3 +757,113 @@ body {
   font-size: var(--text-xs) !important;
 }
 
+/* ── Analyst Selection Styles ─────────────────── */
+.analyst-selection {
+  margin-top: 0.5rem;
+}
+
+.analyst-group {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  background: rgba(241, 245, 249, 0.6);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+}
+
+.analyst-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+}
+
+.analyst-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  transition: background 0.15s;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.analyst-checkbox:hover {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.analyst-checkbox.locked {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.analyst-checkbox.locked:hover {
+  background: transparent;
+}
+
+.analyst-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.analyst-checkbox.locked input[type="checkbox"] {
+  cursor: default;
+}
+
+.analyst-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.analyst-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.analyst-badge.always-on {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent-color);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.analyst-batch-btn {
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 500;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.analyst-batch-btn:hover {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent-color);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.analyst-count {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-align: right;
+  margin-top: 0.35rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(226, 232, 240, 0.4);
+}
+

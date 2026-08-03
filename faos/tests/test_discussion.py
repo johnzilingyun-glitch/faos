@@ -38,20 +38,22 @@ async def test_discussion_service_multi_stage_debate(mock_reasoning):
     
     assert resp.status == "success"
     
-    # Still 7 opinions across stages, same names/order
-    assert len(resp.opinions) == 7
+    # 9 opinions across stages (added Risk Manager + Chief Strategist)
+    assert len(resp.opinions) == 9
     assert resp.opinions[0].name == "Bull Researcher"
     assert resp.opinions[1].name == "Bear Researcher"
     assert resp.opinions[2].name == "Research Manager"
     assert resp.opinions[3].name == "Aggressive Risk Debator"
     assert resp.opinions[4].name == "Conservative Risk Debator"
     assert resp.opinions[5].name == "Neutral Risk Debator"
-    assert resp.opinions[6].name == "Chief Risk Officer"
+    assert resp.opinions[6].name == "Risk Manager"
+    assert resp.opinions[7].name == "Chief Risk Officer"
+    assert resp.opinions[8].name == "Chief Strategist"
     
-    # Debate roles (Bull/Bear/Manager) + CRO now use STRUCTURED reasoning...
+    # Debate roles (Bull/Bear/Manager/CRO) use STRUCTURED reasoning
     assert mock_reasoning.analyze_structured.call_count == 4
-    # ...risk debators (x3) still use free-text reasoning.
-    assert mock_reasoning.analyze_context.call_count == 3
+    # Risk debators (x4) + Chief Strategist use free-text reasoning
+    assert mock_reasoning.analyze_context.call_count == 5
     
     # The debate opinions carry structured payloads (claims / rebuttals / judgment).
     assert resp.opinions[0].structured is not None

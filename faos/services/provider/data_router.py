@@ -39,6 +39,11 @@ class DataRouter:
         s = symbol.strip().upper()
         if s.endswith(".HK") or s.startswith("HK") or (len(s) == 5 and s.isdigit()):
             return "HK-Share"
+        # A-Share: 6-digit with optional .SS/.SZ/.SH/.BJ suffix
+        if s.endswith((".SS", ".SZ", ".SH", ".BJ")):
+            code = s.rsplit(".", 1)[0]
+            if code.isdigit() and len(code) == 6:
+                return "A-Share"
         if len(s) == 6 and s.isdigit():
             return "A-Share"
         if s.startswith("^") or s.isalpha():

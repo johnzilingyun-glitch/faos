@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel
 
@@ -11,6 +11,7 @@ import time
 from faos.core.context import ExecutionContext
 from faos.services.reasoning.models import ReasoningRequest, ReasoningResponse
 from faos.services.reasoning.prompt_builder import PromptBuilder
+from faos.services.reasoning.tools import TOOL_DEFINITIONS, GEMINI_TOOL_DECLARATIONS, tool_executor
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +52,13 @@ class ReasoningService:
       - "gemini": Real Google Gemini API calls
     """
 
-    def __init__(self):
+    def __init__(self, event_bus: Optional[Any] = None):
         self.provider = os.environ.get("FAOS_LLM_PROVIDER", "mock").lower()
         self.default_model = os.environ.get("FAOS_LLM_MODEL", "gemini-3.5-flash")
+        self.max_tool_turns = int(os.environ.get("FAOS_MAX_TOOL_TURNS", "5"))
         self._client = None
         self.prompt_builder = PromptBuilder()
+        self.event_bus = event_bus
         self.rate_limiter = RateLimiter(
             min_interval=float(os.environ.get("LLM_RATE_LIMIT_INTERVAL", "1.5")),
             max_concurrent=int(os.environ.get("LLM_RATE_LIMIT_CONCURRENCY", "3"))
@@ -99,13 +102,15 @@ class ReasoningService:
         if initial_provider == "mock":
             return await self._call_mock(request)
 
+        errors: list[tuple[str, str]] = []
+        use_tools = request.enable_tools and request.tool_definitions
         for provider in fallback_chain:
-            logger.info(f"Trying provider: {provider}")
+            logger.info(f"Trying provider: {provider}" + (" (tools enabled)" if use_tools else ""))
             try:
                 if provider == "gemini":
-                    resp = await self._call_gemini(request)
+                    resp = await (self._run_with_tools_gemini(request) if use_tools else self._call_gemini(request))
                 elif provider in ("deepseek", "openrouter"):
-                    resp = await self._call_openai_compatible(request, provider)
+                    resp = await (self._run_with_tools_openai(request, provider) if use_tools else self._call_openai_compatible(request, provider))
                 else:
                     resp = await self._call_mock(request)
                     
@@ -113,15 +118,19 @@ class ReasoningService:
                 if "[LLM Error]" not in resp.raw_response:
                     return resp
                 else:
+                    errors.append((provider, resp.raw_response))
                     logger.warning(f"Provider {provider} returned error response, falling back...")
             except Exception as e:
+                errors.append((provider, str(e)))
                 logger.warning(f"Provider {provider} raised exception: {e}, falling back...")
 
+        # Build a helpful error message listing each provider's failure
+        detail = "; ".join(f"{p}: {e[:120]}" for p, e in errors)
         return ReasoningResponse(
             task_id=request.task_id,
             insights={},
             confidence=0.0,
-            raw_response="[LLM Error] All available LLM providers failed.",
+            raw_response=f"[LLM Error] All available LLM providers failed. Details: {detail}",
             usage={}
         )
 
@@ -142,8 +151,8 @@ class ReasoningService:
         Structured reasoning: ask the LLM for JSON and parse it into
         ``response_model``. Returns ``(parsed_model_or_None, raw_text)``.
 
-        Never raises: on parse failure it degrades to ``(None, raw_text)`` so the
-        caller can fall back to free-text rendering.
+        Implements Sub-Planner Review & Retry: If output fails JSON parsing or
+        grounding validation, it will automatically append feedback and retry up to 2 times.
         """
         provider = self._resolve_provider(request)
 
@@ -153,7 +162,7 @@ class ReasoningService:
             return model, model.model_dump_json()
 
         hint = schema_hint or json.dumps(response_model.model_json_schema(), ensure_ascii=False)
-        json_instruction = (
+        base_instruction = (
             f"{request.prompt or ''}\n\n"
             "# OUTPUT FORMAT (STRICT)\n"
             "Respond with a SINGLE valid JSON object ONLY — no markdown fences, no prose "
@@ -161,30 +170,76 @@ class ReasoningService:
             "every evidence/signal/inference a numeric confidence in [0,1]. Conform to this shape:\n"
             f"{hint}"
         )
-        aug = request.model_copy(update={"prompt": json_instruction, "json_mode": True})
-        resp = await self.analyze_context(aug)
-        parsed = self._coerce(resp.raw_response, response_model)
-        return parsed, resp.raw_response
+        
+        max_retries = 3
+        last_raw_response = ""
+        feedback = ""
 
-    def _coerce(self, raw: str, response_model: Type[BaseModel]) -> Optional[BaseModel]:
-        """Tolerantly parse JSON (possibly fenced, wrapped in prose, or with trailing text)."""
+        for attempt in range(max_retries + 1):
+            if feedback:
+                logger.info(f"Sub-Planner retry {attempt}/{max_retries} due to: {feedback[:100]}")
+                json_instruction = f"{base_instruction}\n\n# REVIEWER FEEDBACK ON PREVIOUS ATTEMPT\nYour last response was rejected. Reason: {feedback}\nPlease fix the issue and regenerate the JSON correctly."
+            else:
+                json_instruction = base_instruction
+
+            aug = request.model_copy(update={
+                "prompt": json_instruction,
+                "json_mode": not request.enable_tools,
+            })
+            if request.enable_tools:
+                aug.enable_tools = True
+                aug.tool_definitions = request.tool_definitions or TOOL_DEFINITIONS
+                
+            resp = await self.analyze_context(aug)
+            last_raw_response = resp.raw_response
+            
+            # 1. Check if we got an LLM Error directly
+            if last_raw_response.startswith("[LLM Error]"):
+                return None, last_raw_response
+
+            # 2. Try to parse JSON and apply Pydantic validation
+            parsed, parse_error = self._coerce(last_raw_response, response_model)
+            if not parsed:
+                feedback = f"Could not parse output as valid JSON matching the schema, or schema validation failed. Error details: {parse_error}\nPlease fix the JSON and ensure all fields meet constraints."
+                continue
+                
+            # 3. Grounding / Logic Verification
+            from faos.services.reasoning.grounding_verifier import grounding_verifier
+            parsed_dict = parsed.model_dump()
+            try:
+                annotated_dict = grounding_verifier.annotate_dict(parsed_dict, request.context_data)
+                parsed = response_model.model_validate(annotated_dict)
+                # Success!
+                return parsed, last_raw_response
+            except Exception as e:
+                feedback = f"Output failed grounding or semantic validation: {e}"
+                continue
+
+        # If we exhausted retries, return degraded
+        logger.error(f"analyze_structured failed after {max_retries} retries. Last feedback: {feedback}")
+        return None, last_raw_response
+
+    def _coerce(self, raw: str, response_model: Type[BaseModel]) -> Tuple[Optional[BaseModel], str]:
+        """Tolerantly parse JSON (possibly fenced, wrapped in prose) and return (model, error)."""
         if not raw:
-            return None
+            return None, "Empty response"
         text = raw.strip()
+        
+        last_err = ""
         
         # 1. Strip Markdown code blocks
         fence_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.IGNORECASE)
         if fence_match:
             try:
-                return response_model.model_validate_json(fence_match.group(1))
-            except Exception:
-                pass
+                return response_model.model_validate_json(fence_match.group(1)), ""
+            except Exception as e:
+                last_err = str(e)
 
         # 2. Try direct parsing
         try:
-            return response_model.model_validate_json(text)
-        except Exception:
-            pass
+            return response_model.model_validate_json(text), ""
+        except Exception as e:
+            last_err = str(e)
 
         # 3. Locate valid JSON substring from first '{' to last matching '}'
         first_brace = text.find("{")
@@ -193,11 +248,12 @@ class ReasoningService:
             while idx > first_brace:
                 candidate = text[first_brace : idx + 1]
                 try:
-                    return response_model.model_validate_json(candidate)
-                except Exception:
+                    return response_model.model_validate_json(candidate), ""
+                except Exception as e:
+                    last_err = str(e)
                     idx = text.rfind("}", first_brace, idx - 1)
 
-        return None
+        return None, last_err
 
     def _mock_structured(self, response_model: Type[BaseModel], context_data: Dict[str, Any]) -> BaseModel:
         """Build a valid structured stub for offline/mock runs."""
@@ -345,6 +401,8 @@ class ReasoningService:
                 usage={},
             )
 
+        from faos.services.reasoning.grounding_verifier import grounding_verifier
+        
         # Build the user message from context data
         user_message = self.prompt_builder.build_user_prompt(
             intent=request.prompt or "Analyze the provided context.",
@@ -369,26 +427,50 @@ class ReasoningService:
 
         for attempt in range(max_retries + 1):
             try:
+                is_streaming = not request.json_mode
                 async with self.rate_limiter:
-                    # Run the synchronous SDK call in a thread to avoid blocking the event loop
-                    response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model=model,
-                        contents=contents,
-                        config=config,
-                    )
+                    if is_streaming:
+                        response_stream = client.aio.models.generate_content_stream(
+                            model=model,
+                            contents=contents,
+                            config=config,
+                        )
+                        raw_text = ""
+                        async for chunk in response_stream:
+                            if chunk.text:
+                                delta = chunk.text
+                                raw_text += delta
+                                if self.event_bus:
+                                    from faos.core.models import Event, AgentStreamChunk
+                                    chunk_event = Event(
+                                        type="AgentStreamChunk",
+                                        source="reasoning_service",
+                                        payload=AgentStreamChunk(
+                                            task_id=request.task_id,
+                                            agent_name=model,
+                                            chunk=delta,
+                                            node_id=request.context_data.get("node_id") if isinstance(request.context_data, dict) else None
+                                        ).model_dump()
+                                    )
+                                    self.event_bus.publish(chunk_event)
+                        usage = {} # Usage usually provided at the end of stream if at all
+                    else:
+                        response = await client.aio.models.generate_content(
+                            model=model,
+                            contents=contents,
+                            config=config,
+                        )
+                        raw_text = response.text or ""
 
-                raw_text = response.text or ""
-
-                # Extract usage metadata
-                usage = {}
-                if hasattr(response, "usage_metadata") and response.usage_metadata:
-                    um = response.usage_metadata
-                    usage = {
-                        "prompt_tokens": getattr(um, "prompt_token_count", 0) or 0,
-                        "completion_tokens": getattr(um, "candidates_token_count", 0) or 0,
-                        "total_tokens": getattr(um, "total_token_count", 0) or 0,
-                    }
+                        # Extract usage metadata
+                        usage = {}
+                        if hasattr(response, "usage_metadata") and response.usage_metadata:
+                            um = response.usage_metadata
+                            usage = {
+                                "prompt_tokens": getattr(um, "prompt_token_count", 0) or 0,
+                                "completion_tokens": getattr(um, "candidates_token_count", 0) or 0,
+                                "total_tokens": getattr(um, "total_token_count", 0) or 0,
+                            }
 
                 return ReasoningResponse(
                     task_id=request.task_id,
@@ -463,7 +545,6 @@ class ReasoningService:
                 api_key = request.llm_config["api_key"]
                 
         if not api_key:
-            import os
             if provider == "openrouter":
                 api_key = os.environ.get("OPENROUTER_API_KEY", "")
             elif provider == "deepseek":
@@ -499,10 +580,87 @@ class ReasoningService:
             for attempt in range(max_retries + 1):
                 try:
                     create_kwargs: Dict[str, Any] = {"model": model, "messages": messages}
+                    
+                    is_streaming = not request.json_mode
                     if request.json_mode:
                         create_kwargs["response_format"] = {"type": "json_object"}
+                    else:
+                        create_kwargs["stream"] = True
+
+                    if provider == "deepseek" and "deepseek-v4" in model:
+                        create_kwargs["reasoning_effort"] = "max"
+                        create_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
                     async with self.rate_limiter:
                         response = await client.chat.completions.create(**create_kwargs)
+                        
+                        if is_streaming:
+                            raw_text = ""
+                            in_thinking = False
+                            async for chunk in response:
+                                if chunk.choices and len(chunk.choices) > 0:
+                                    delta = chunk.choices[0].delta.content or ""
+                                    reasoning = getattr(chunk.choices[0].delta, "reasoning_content", "") or ""
+                                    
+                                    chunk_to_send = ""
+                                    if reasoning:
+                                        if not in_thinking:
+                                            chunk_to_send += "<think>\n"
+                                            in_thinking = True
+                                        chunk_to_send += reasoning
+                                        
+                                    if delta:
+                                        if in_thinking:
+                                            chunk_to_send += "\n</think>\n"
+                                            in_thinking = False
+                                        chunk_to_send += delta
+                                        
+                                    if chunk_to_send:
+                                        raw_text += chunk_to_send
+                                        if self.event_bus:
+                                            from faos.core.models import Event, AgentStreamChunk
+                                            chunk_event = Event(
+                                                type="AgentStreamChunk",
+                                                source="reasoning_service",
+                                                payload=AgentStreamChunk(
+                                                    task_id=request.task_id,
+                                                    agent_name=model,
+                                                    chunk=chunk_to_send,
+                                                    node_id=request.context_data.get("node_id") if isinstance(request.context_data, dict) else None
+                                                ).model_dump()
+                                            )
+                                            self.event_bus.publish(chunk_event)
+                            
+                            if in_thinking:
+                                closing_tag = "\n</think>\n"
+                                raw_text += closing_tag
+                                if self.event_bus:
+                                    chunk_event = Event(
+                                        type="AgentStreamChunk",
+                                        source="reasoning_service",
+                                        payload=AgentStreamChunk(
+                                            task_id=request.task_id,
+                                            agent_name=model,
+                                            chunk=closing_tag,
+                                            node_id=request.context_data.get("node_id") if isinstance(request.context_data, dict) else None
+                                        ).model_dump()
+                                    )
+                                    self.event_bus.publish(chunk_event)
+                            usage = {} # OpenAI API doesn't always return usage natively with streaming
+                        else:
+                            content = response.choices[0].message.content or ""
+                            reasoning = getattr(response.choices[0].message, "reasoning_content", "") or ""
+                            if reasoning:
+                                raw_text = f"<think>\n{reasoning}\n</think>\n{content}"
+                            else:
+                                raw_text = content
+                            usage = {}
+                            if response.usage:
+                                usage = {
+                                    "prompt_tokens": response.usage.prompt_tokens,
+                                    "completion_tokens": response.usage.completion_tokens,
+                                    "total_tokens": response.usage.total_tokens,
+                                }
                     break
                 except Exception as e:
                     error_str = str(e)
@@ -523,14 +681,11 @@ class ReasoningService:
                     else:
                         raise e
 
-            raw_text = response.choices[0].message.content or ""
-            usage = {}
-            if response.usage:
-                usage = {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
-                }
+            # Grounding Verification on raw text if not json_mode
+            if not request.json_mode:
+                from faos.services.reasoning.grounding_verifier import grounding_verifier
+                v_res = grounding_verifier.verify(raw_text, request.context_data)
+                raw_text = grounding_verifier.annotate_output(raw_text, v_res)
 
             return ReasoningResponse(
                 task_id=request.task_id,
@@ -549,6 +704,242 @@ class ReasoningService:
                 raw_response=f"[LLM Error] {str(e)}",
                 usage={},
             )
+
+    # ── Tool Calling (Multi-Turn) ────────────────────────────────────
+
+    async def _run_with_tools_openai(self, request: ReasoningRequest, provider: str) -> ReasoningResponse:
+        """
+        Multi-turn conversation with tool calling for OpenAI-compatible providers
+        (DeepSeek, OpenRouter). The LLM can call web_search to fill missing data.
+        """
+        model = request.model or ("deepseek-v4-flash" if provider == "deepseek" else "openai/gpt-4o-mini")
+        api_key = ""
+        base_url = "https://api.deepseek.com" if provider == "deepseek" else "https://openrouter.ai/api/v1"
+
+        if request.llm_config:
+            if "model" in request.llm_config and request.llm_config["model"]:
+                model = request.llm_config["model"]
+            if request.llm_config.get("api_key"):
+                api_key = request.llm_config["api_key"]
+
+        if not api_key:
+            if provider == "openrouter":
+                api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            elif provider == "deepseek":
+                api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+
+        if not api_key:
+            return ReasoningResponse(
+                task_id=request.task_id, insights={}, confidence=0.0,
+                raw_response=f"[LLM Error] Missing API Key for {provider.capitalize()} Provider.",
+                usage={},
+            )
+
+        tools = request.tool_definitions or TOOL_DEFINITIONS
+        max_turns = self.max_tool_turns
+
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+            user_message = self.prompt_builder.build_user_prompt(
+                intent=request.prompt or "Analyze the provided context.",
+                context_data=request.context_data,
+                is_rendered=request.is_rendered,
+            )
+            messages: List[Dict[str, Any]] = []
+            if request.prompt and not request.is_rendered:
+                messages.append({"role": "system", "content": request.prompt})
+                messages.append({"role": "user", "content": user_message})
+            else:
+                messages.append({"role": "user", "content": user_message})
+
+            total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+            for turn in range(max_turns + 1):
+                create_kwargs: Dict[str, Any] = {"model": model, "messages": messages, "tools": tools}
+                if request.json_mode and turn == 0:
+                    # json_mode only on first call; subsequent turns need tool_call flexibility
+                    pass  # Don't set response_format when tools are present
+
+                async with self.rate_limiter:
+                    response = await client.chat.completions.create(**create_kwargs)
+
+                choice = response.choices[0]
+                if response.usage:
+                    total_usage["prompt_tokens"] += response.usage.prompt_tokens or 0
+                    total_usage["completion_tokens"] += response.usage.completion_tokens or 0
+                    total_usage["total_tokens"] += response.usage.total_tokens or 0
+
+                # If LLM returned content without tool calls → final answer
+                if choice.finish_reason != "tool_calls" or not choice.message.tool_calls:
+                    raw_text = choice.message.content or ""
+                    if not request.json_mode:
+                        from faos.services.reasoning.grounding_verifier import grounding_verifier
+                        v_res = grounding_verifier.verify(raw_text, request.context_data)
+                        raw_text = grounding_verifier.annotate_output(raw_text, v_res)
+                    return ReasoningResponse(
+                        task_id=request.task_id, insights={}, confidence=0.0,
+                        raw_response=raw_text, usage=total_usage,
+                    )
+
+                # Execute tool calls
+                messages.append(choice.message.model_dump())
+                for tc in choice.message.tool_calls:
+                    tool_name = tc.function.name
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except json.JSONDecodeError:
+                        args = {}
+                    logger.info(f"Tool call: {tool_name}({json.dumps(args, ensure_ascii=False)[:120]})")
+                    result = await tool_executor.execute(tool_name, args)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    })
+
+                if turn >= max_turns:
+                    # Force final answer
+                    messages.append({"role": "user", "content": "请基于以上所有搜索结果，给出最终分析结论。不要再调用工具。"})
+                    async with self.rate_limiter:
+                        final = await client.chat.completions.create(
+                            model=model, messages=messages,
+                        )
+                    raw_text = final.choices[0].message.content or ""
+                    if final.usage:
+                        total_usage["prompt_tokens"] += final.usage.prompt_tokens or 0
+                        total_usage["completion_tokens"] += final.usage.completion_tokens or 0
+                        total_usage["total_tokens"] += final.usage.total_tokens or 0
+                    return ReasoningResponse(
+                        task_id=request.task_id, insights={}, confidence=0.0,
+                        raw_response=raw_text, usage=total_usage,
+                    )
+
+            # Should not reach here, but handle gracefully
+            return ReasoningResponse(
+                task_id=request.task_id, insights={}, confidence=0.0,
+                raw_response="[LLM Error] Tool calling exceeded maximum turns.",
+                usage=total_usage,
+            )
+
+        except Exception as e:
+            logger.error(f"{provider.capitalize()} tool-calling failed: {e}")
+            return ReasoningResponse(
+                task_id=request.task_id, insights={}, confidence=0.0,
+                raw_response=f"[LLM Error] {str(e)}", usage={},
+            )
+
+    async def _run_with_tools_gemini(self, request: ReasoningRequest) -> ReasoningResponse:
+        """
+        Multi-turn conversation with function calling for Gemini.
+        """
+        model = request.model or self.default_model
+        client = self._client
+        if request.llm_config:
+            if "model" in request.llm_config:
+                model = request.llm_config["model"]
+            if request.llm_config.get("api_key"):
+                from google import genai
+                client = genai.Client(api_key=request.llm_config["api_key"])
+
+        if not client:
+            return ReasoningResponse(
+                task_id=request.task_id, insights={}, confidence=0.0,
+                raw_response="[LLM Error] Missing API Key for Gemini Provider.", usage={},
+            )
+
+        from google.genai import types
+
+        user_message = self.prompt_builder.build_user_prompt(
+            intent=request.prompt or "Analyze the provided context.",
+            context_data=request.context_data,
+            is_rendered=request.is_rendered,
+        )
+        contents: List[Any] = [user_message]
+        config_kwargs: Dict[str, Any] = {}
+        if request.prompt and not request.is_rendered:
+            config_kwargs["system_instruction"] = request.prompt
+
+        total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        max_turns = self.max_tool_turns
+
+        # Convert Gemini tool declarations
+        gemini_tools = []
+        for td in (request.tool_definitions or TOOL_DEFINITIONS):
+            gemini_tools.append(types.Tool(function_declarations=[
+                types.FunctionDeclaration(
+                    name=td["function"]["name"],
+                    description=td["function"]["description"],
+                    parameters=td["function"]["parameters"],
+                )
+            ]))
+        if gemini_tools:
+            config_kwargs["tools"] = gemini_tools
+        config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+
+        for turn in range(max_turns + 1):
+            try:
+                async with self.rate_limiter:
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=model, contents=contents, config=config,
+                    )
+            except Exception as e:
+                logger.error(f"Gemini tool-calling failed: {e}")
+                return ReasoningResponse(
+                    task_id=request.task_id, insights={}, confidence=0.0,
+                    raw_response=f"[LLM Error] {str(e)}", usage={},
+                )
+
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                um = response.usage_metadata
+                total_usage["prompt_tokens"] += getattr(um, "prompt_token_count", 0) or 0
+                total_usage["completion_tokens"] += getattr(um, "candidates_token_count", 0) or 0
+                total_usage["total_tokens"] += getattr(um, "total_token_count", 0) or 0
+
+            # Check for function calls
+            if response.candidates and response.candidates[0].content:
+                candidate = response.candidates[0]
+                has_func_calls = False
+                func_results: List[Any] = []
+                for part in candidate.content.parts:
+                    if part.function_call:
+                        has_func_calls = True
+                        args = dict(part.function_call.args) if part.function_call.args else {}
+                        logger.info(f"Gemini tool call: {part.function_call.name}({json.dumps(args, ensure_ascii=False)[:120]})")
+                        result = await tool_executor.execute(part.function_call.name, args)
+                        func_results.append(types.Part.from_function_response(
+                            name=part.function_call.name,
+                            response={"result": result},
+                        ))
+
+                if has_func_calls:
+                    contents.append(types.Content(role="model", parts=candidate.content.parts))
+                    contents.append(types.Content(role="user", parts=func_results))
+                    if turn >= max_turns:
+                        contents.append(types.Content(role="user", parts=[
+                            types.Part(text="请基于以上所有搜索结果，给出最终分析结论。不要再调用工具。"),
+                        ]))
+                else:
+                    # Final answer
+                    raw_text = response.text or ""
+                    return ReasoningResponse(
+                        task_id=request.task_id, insights={}, confidence=0.0,
+                        raw_response=raw_text, usage=total_usage,
+                    )
+            else:
+                raw_text = response.text or ""
+                return ReasoningResponse(
+                    task_id=request.task_id, insights={}, confidence=0.0,
+                    raw_response=raw_text, usage=total_usage,
+                )
+
+        return ReasoningResponse(
+            task_id=request.task_id, insights={}, confidence=0.0,
+            raw_response="[LLM Error] Tool calling exceeded maximum turns.",
+            usage=total_usage,
+        )
 
     # ── Mock Provider ───────────────────────────────────────────────
 

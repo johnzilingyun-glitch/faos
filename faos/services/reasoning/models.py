@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 class ReasoningRequest(BaseModel):
     task_id: str = Field(..., description="ID of the task this reasoning belongs to")
@@ -10,6 +10,9 @@ class ReasoningRequest(BaseModel):
     llm_config: Optional[Dict[str, Any]] = Field(default=None, description="Dynamic LLM configuration overriding global env")
     json_mode: bool = Field(default=False, description="Request provider-native JSON output mode for structured reasoning")
     is_rendered: bool = Field(default=False, description="If True, prompt is already fully rendered (e.g. via Jinja) and PromptBuilder should skip re-injecting context.")
+    # Tool / function-calling support
+    enable_tools: bool = Field(default=False, description="Allow the LLM to call tools (web_search) to fetch missing data")
+    tool_definitions: Optional[List[Dict[str, Any]]] = Field(default=None, description="OpenAI-format tool definitions")
 
 class ReasoningResponse(BaseModel):
     task_id: str

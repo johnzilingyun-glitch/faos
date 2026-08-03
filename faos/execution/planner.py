@@ -72,7 +72,7 @@ class PlannerPipeline:
             "     - US Stocks: base ticker symbol (e.g. 英伟达/Nvidia → 'NVDA', 苹果/Apple → 'AAPL', 特斯拉/Tesla → 'TSLA', 微软 → 'MSFT', 谷歌 → 'GOOGL', 阿里 → 'BABA', 蔚来 → 'NIO').\n"
             "     - Hong Kong Stocks: 4-digit ticker + '.HK' (e.g. 腾讯 → '0700.HK', 美团 → '3690.HK', 百度 → '9888.HK').\n"
             "     - China A-Shares: 6-digit ticker + '.SS' (Shanghai) or '.SZ' (Shenzhen) (e.g. 贵州茅台 → '600519.SS', 宁德时代 → '300750.SZ').\n"
-            "     - Set `parameters: {\"symbol\": \"<RESOLVED_TICKER>\"}`.\n"
+            "     - Set `parameters: {\"symbol\": \"<RESOLVED_TICKER>\", \"investment_horizon\": \"<short-term | long-term>\", \"strategic_focus\": \"<user specific focus, e.g., dividend, growth, risk>\"}`.\n"
             "   - **STRICT RULE**: When the user specifies a stock target alongside an analysis intent, NEVER ask for clarification! Output `status: 'ready'` immediately.\n\n"
             "2. **Market News & Macro Intelligence (`NewsSummaryWorkflow`)**:\n"
             "   - **Trigger**: The user asks for financial news, morning digests, macro trends, policy updates, central bank decisions, or geopolitics\n"
@@ -82,17 +82,23 @@ class PlannerPipeline:
             "3. **Strategy Backtest & Quantitative Analysis (`BacktestStrategyWorkflow`)**:\n"
             "   - **Trigger**: The user asks to test or backtest a trading strategy or quantitative signal.\n"
             "   - **Action**: Output `status: 'ready'`, `workflow_id: 'BacktestStrategyWorkflow'`.\n\n"
-            "4. **Conversational Q&A / Greetings / General Guidance (`status: 'clarify'`)**:\n"
+            "4. **Sector Scanning & Stock Discovery (`SectorScanWorkflow`)**:\n"
+            "   - **Trigger**: The user asks to find, screen, scan, or discover stocks in a specific sector or matching specific criteria (e.g., '帮我找找最近被低估的半导体股票', '有哪些优质的创新药标的', 'Screen for high dividend yield utility stocks').\n"
+            "   - **Action**: Output `status: 'ready'`, `workflow_id: 'SectorScanWorkflow'`.\n"
+            "   - **Parameters**: Set `parameters: {\"sector\": \"<target_sector>\", \"criteria\": \"<screening_criteria>\"}`.\n\n"
+            "5. **Conversational Q&A / Greetings / General Guidance (`status: 'clarify'`)**:\n"
             "   - **Trigger**: The user greets you ('hi', 'hello', '你好'), asks general financial questions, or makes a vague request without any target ('帮我看下').\n"
             "   - **Action**: Output `status: 'clarify'`, provide an intelligent, helpful response matching the user's language, and guide them on what system capabilities they can run.\n\n"
             f"{force_clause}\n\n"
             "## JSON Output Format (STRICT)\n"
             "You MUST respond in valid JSON ONLY:\n"
             "{\n"
+            '  "intent_analysis": "Detailed breakdown of what the user wants, involved entities, and required depth. Write this FIRST.",\n'
+            '  "plan_steps": ["step 1", "step 2", "step 3..."],\n'
             '  "status": "ready" | "clarify",\n'
             '  "message": "natural, friendly response explaining your decision or asking for clarification",\n'
             '  "workflow_id": "workflow id if ready, null if clarify",\n'
-            '  "parameters": {"symbol": "NVDA"},\n'
+            '  "parameters": {"symbol": "NVDA", "investment_horizon": "long-term", "strategic_focus": "AI chip market dominance"},\n'
             '  "reasoning": "step-by-step intent reasoning"\n'
             "}"
         )
@@ -126,33 +132,24 @@ class PlannerPipeline:
             task_id="planner-chat",
             prompt=system_prompt,
             context_data=context_data,
+            json_mode=True,
             model=(llm_config or {}).get("model"),
-            llm_config=llm_config
+            llm_config=llm_config,
+            enable_tools=True,
         )
 
-        resp = await self.reasoning_service.analyze_context(req)
-        raw_response = resp.raw_response or ""
-
-        # Handle explicit LLM errors (e.g. 429 Rate Limit) without masking them as fake greetings
-        if raw_response.startswith("[LLM Error]"):
-            logger.error(f"Planner LLM returned error: {raw_response}")
-            return PlannerResponse(
-                status="clarify",
-                message=f"⚠️ LLM 服务调用未成功:\n{raw_response}\n\n👉 请在右上角 ⚙️【设置】中检查 API Key 或切换 Provider/Model。"
-            )
-
-        # Parse LLM response JSON
         try:
-            start = raw_response.find("{")
-            end = raw_response.rfind("}")
-            if start != -1 and end != -1:
-                json_str = raw_response[start:end + 1]
-                data = json.loads(json_str)
-                result = PlannerResponse(**data)
-                logger.info(f"Planner chat response: status={result.status}, wf={result.workflow_id}, params={result.parameters}")
-                return result
+            result = await self.reasoning_service.analyze_structured(req, response_model=PlannerResponse)
+            if not result:
+                # If exhausted retries and returned None
+                logger.error("Planner failed to generate valid structured output after retries.")
+                raise Exception("analyze_structured returned None")
+            
+            logger.info(f"Planner chat response: status={result.status}, wf={result.workflow_id}, params={result.parameters}")
+            return result
+            
         except Exception as e:
-            logger.error(f"Planner failed to parse LLM chat response: {e}. Raw: {raw_response[:300]}")
+            logger.error(f"Planner error using analyze_structured: {e}")
 
         # Fallback: if force, return ready with defaults; otherwise a friendly clarify
         if force:
@@ -271,12 +268,49 @@ class PlannerPipeline:
         nodes.append(PlanNode(id="node1", capability="cap.fetch_data", parameters=node_params, dependencies=[]))
         nodes.append(PlanNode(id="node2", capability="cap.fetch_news", parameters=node_params, dependencies=[]))
         
-        # Merge at Analyze
-        nodes.append(PlanNode(id="node3", capability="cap.analyze", parameters=node_params, dependencies=["node1", "node2"]))
+        # Analyze Pipeline DAG
+        # Stage 1: Core
+        p1 = node_params.copy()
+        p1["analyze_stage"] = 1
+        nodes.append(PlanNode(id="node3_s1", capability="cap.analyze", parameters=p1, dependencies=["node1", "node2"]))
         
-        # Follow-up standard pipeline
-        nodes.append(PlanNode(id="node_discuss", capability="cap.discuss", parameters=node_params, dependencies=["node3"]))
-        nodes.append(PlanNode(id="node_decision", capability="cap.decision", parameters=node_params, dependencies=["node_discuss"]))
+        # Stage 2: Perspectives
+        p2 = node_params.copy()
+        p2["analyze_stage"] = 2
+        nodes.append(PlanNode(id="node3_s2", capability="cap.analyze", parameters=p2, dependencies=["node3_s1"]))
+        
+        # Stage 3: Professional Reviewer
+        p3 = node_params.copy()
+        p3["analyze_stage"] = 3
+        nodes.append(PlanNode(id="node3_s3", capability="cap.analyze", parameters=p3, dependencies=["node3_s2"]))
+        
+        # Stage 4: Chief Strategist
+        p4 = node_params.copy()
+        p4["analyze_stage"] = 4
+        nodes.append(PlanNode(id="node3_s4", capability="cap.analyze", parameters=p4, dependencies=["node3_s3"]))
+        
+        # Discussion Pipeline DAG
+        # Stage 1: Bull vs Bear
+        d1 = node_params.copy()
+        d1["discuss_stage"] = "stage1"
+        nodes.append(PlanNode(id="node_discuss_s1", capability="cap.discuss", parameters=d1, dependencies=["node3_s4"]))
+        
+        # Stage 2: Manager
+        d2 = node_params.copy()
+        d2["discuss_stage"] = "stage2"
+        nodes.append(PlanNode(id="node_discuss_s2", capability="cap.discuss", parameters=d2, dependencies=["node_discuss_s1"]))
+        
+        # Stage 3: Mastermind Debate
+        d3 = node_params.copy()
+        d3["discuss_stage"] = "stage3"
+        nodes.append(PlanNode(id="node_discuss_s3", capability="cap.discuss", parameters=d3, dependencies=["node_discuss_s2"]))
+        
+        # Stage 4: CRO & Strategy
+        d4 = node_params.copy()
+        d4["discuss_stage"] = "stage4"
+        nodes.append(PlanNode(id="node_discuss_s4", capability="cap.discuss", parameters=d4, dependencies=["node_discuss_s3"]))
+        
+        nodes.append(PlanNode(id="node_decision", capability="cap.decision", parameters=node_params, dependencies=["node_discuss_s4"]))
         nodes.append(PlanNode(id="node_reflection", capability="cap.reflection", parameters=node_params, dependencies=["node_decision"]))
         nodes.append(PlanNode(id="node4", capability="cap.report", parameters=node_params, dependencies=["node_reflection"]))
         

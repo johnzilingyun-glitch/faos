@@ -72,20 +72,23 @@ async def test_gemini_retry_on_rate_limit(monkeypatch):
     class FakeResponse:
         text = "Retried successfully"
         usage_metadata = None
-
     call_count = 0
 
-    def mock_generate_content(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            raise Exception("429 RESOURCE_EXHAUSTED. 'retryDelay': '0.1s'")
-        return FakeResponse()
-
     class FakeClient:
-        class models:
-            generate_content = staticmethod(mock_generate_content)
-
+        class aio:
+            class models:
+                async def generate_content_stream(*args, **kwargs):
+                    nonlocal call_count
+                    call_count += 1
+                    if call_count == 1:
+                        raise Exception("429 RESOURCE_EXHAUSTED. 'retryDelay': '0.1s'")
+                    class FakeChunk:
+                        text = "Retried "
+                    class FakeChunk2:
+                        text = "successfully"
+                    yield FakeChunk()
+                    yield FakeChunk2()
+    
     service._client = FakeClient()
     
     request = ReasoningRequest(
@@ -97,3 +100,40 @@ async def test_gemini_retry_on_rate_limit(monkeypatch):
     response = await service.analyze_context(request)
     assert call_count == 2
     assert response.raw_response == "Retried successfully"
+
+from pydantic import BaseModel, Field
+
+class DummyStructured(BaseModel):
+    name: str
+    score: float
+
+@pytest.mark.asyncio
+async def test_analyze_structured_retry_on_bad_json(monkeypatch):
+    service = ReasoningService()
+    service.provider = "gemini"
+    
+    call_count = 0
+    
+    class FakeBadResponse:
+        raw_response = "I am a bad LLM, here is some text instead of JSON!"
+        
+    class FakeGoodResponse:
+        raw_response = '{"name": "test", "score": 9.5}'
+        
+    async def mock_analyze_context(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return FakeBadResponse()
+        return FakeGoodResponse()
+        
+    # Monkeypatch the internal analyze_context
+    monkeypatch.setattr(service, "analyze_context", mock_analyze_context)
+    
+    req = ReasoningRequest(task_id="retry-json", context_data={})
+    parsed, raw = await service.analyze_structured(req, DummyStructured)
+    
+    assert call_count == 2
+    assert parsed is not None
+    assert parsed.name == "test"
+    assert parsed.score == 9.5

@@ -109,11 +109,29 @@ class AnalyzeSkill(BaseSkill):
         context_data = request.context.provider_outputs.copy()
         context_data["user_parameters"] = request.parameters
 
+        # Merge analyst_stage2 selection from llm_config (sent by frontend Settings)
+        llm_config = request.context.get_variable("llm_config", {})
+        if isinstance(llm_config, dict) and "analyst_stage2" in llm_config:
+            context_data["user_parameters"]["analyst_stage2"] = llm_config["analyst_stage2"]
+        if isinstance(llm_config, dict) and "language" in llm_config:
+            context_data["user_parameters"].setdefault("language", llm_config["language"])
+
         # Build the canonical FactSheet ONCE and inject it so downstream agents
         # reference established facts instead of re-introducing the company.
         fact_sheet = build_fact_sheet(request.context.provider_outputs, request.parameters)
         context_data["fact_sheet"] = fact_sheet
         request.context.set_fact_sheet(fact_sheet)
+
+        analyze_stage = request.parameters.get("analyze_stage")
+        if analyze_stage:
+            context_data["user_parameters"]["analyze_stage"] = analyze_stage
+            # Inject outputs from previous stages
+            if analyze_stage > 1:
+                context_data["stage1_analysis"] = request.context.results.get(f"analysis_reports_structured_stage1", {})
+            if analyze_stage > 2:
+                context_data["stage2_analysis"] = request.context.results.get(f"analysis_reports_structured_stage2", {})
+            if analyze_stage > 3:
+                context_data["stage3_analysis"] = request.context.results.get(f"analysis_reports_structured_stage3", {})
 
         analyze_req = AnalyzeRequest(
             task_id=request.task_id,
@@ -123,38 +141,61 @@ class AnalyzeSkill(BaseSkill):
         response = await self.analyze_service.analyze(analyze_req)
 
         # Rendered markdown (back-compat for report builder + frontend)
-        request.context.add_result("analysis_reports", response.analyst_reports)
-        # Structured reports (new, for evidence fusion / downstream agents)
-        request.context.add_result(
-            "analysis_reports_structured",
-            {role: rep.model_dump() for role, rep in response.structured_reports.items()}
-        )
+        analyst_reports = response.analyst_reports or {}
+        
+        # Merge with existing reports if we are running a single stage
+        if analyze_stage:
+            existing_reports = request.context.results.get("analysis_reports", {})
+            existing_reports.update(analyst_reports)
+            request.context.add_result("analysis_reports", existing_reports)
+            request.context.add_result(f"analysis_reports_stage{analyze_stage}", analyst_reports)
+        else:
+            request.context.add_result("analysis_reports", analyst_reports)
 
-        # Populate the shared evidence graph (Fact -> Inference chain).
-        for role, rep in response.structured_reports.items():
-            for f in rep.facts:
-                request.context.add_evidence_node("facts", {**f.model_dump(), "by": role})
-            for e in rep.evidence:
-                request.context.add_evidence_node("evidence", {**e.model_dump(), "by": role})
-            for s in rep.signals:
-                request.context.add_evidence_node("signals", {**s.model_dump(), "by": role})
-            for i in rep.inferences:
-                request.context.add_evidence_node("inferences", {**i.model_dump(), "by": role})
+        # Structured reports (new, for evidence fusion / downstream agents)
+        structured_reports = response.structured_reports or {}
+        dumped_structured = {role: rep.model_dump() if hasattr(rep, "model_dump") else rep for role, rep in structured_reports.items()}
+        
+        if analyze_stage:
+            existing_structured = request.context.results.get("analysis_reports_structured", {})
+            existing_structured.update(dumped_structured)
+            request.context.add_result("analysis_reports_structured", existing_structured)
+            request.context.add_result(f"analysis_reports_structured_stage{analyze_stage}", dumped_structured)
+        else:
+            request.context.add_result("analysis_reports_structured", dumped_structured)
+
+        # Populate the shared evidence graph (Fact -> Inference chain) — gracefully.
+        for role, rep in structured_reports.items():
+            try:
+                for f in (getattr(rep, "facts", None) or []):
+                    request.context.add_evidence_node("facts", {** (f.model_dump() if hasattr(f, "model_dump") else f), "by": role})
+                for e in (getattr(rep, "evidence", None) or []):
+                    request.context.add_evidence_node("evidence", {** (e.model_dump() if hasattr(e, "model_dump") else e), "by": role})
+                for s in (getattr(rep, "signals", None) or []):
+                    request.context.add_evidence_node("signals", {** (s.model_dump() if hasattr(s, "model_dump") else s), "by": role})
+                for i in (getattr(rep, "inferences", None) or []):
+                    request.context.add_evidence_node("inferences", {** (i.model_dump() if hasattr(i, "model_dump") else i), "by": role})
+            except Exception as e:
+                import logging, traceback
+                logging.getLogger(__name__).warning(
+                    f"Evidence graph population failed for {role}: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+                )
 
         return SkillResponse(status="success", output=response.analyst_reports)
 
 
 class DecisionSkill(BaseSkill):
-    def __init__(self, decision_service: DecisionService):
+    def __init__(self, decision_service, portfolio_service=None):
         self.decision_service = decision_service
+        self.portfolio_service = portfolio_service
         
     @property
     def manifest(self) -> SkillManifest:
         return SkillManifest(
-            id="stock.decision.policy",
-            name="Policy Decision Skill",
+            id="stock.decision",
+            name="Decision Skill",
             capability="cap.decision",
-            description="Uses DecisionService to make investment decisions"
+            description="Evaluates all previous analyses and makes a final buy/sell decision with portfolio management integration."
         )
         
     async def execute(self, request: SkillRequest) -> SkillResponse:
@@ -183,6 +224,34 @@ class DecisionSkill(BaseSkill):
         }
         
         request.context.add_result("decision", decision_data)
+        
+        # Trigger portfolio management auto-invest
+        if self.portfolio_service:
+            symbol = request.parameters.get("symbol")
+            
+            # Extract current price from context if available
+            market_data = request.context.provider_outputs.get("quote", {})
+            current_price = market_data.get("regularMarketPrice", 100.0)
+            if not current_price:
+                current_price = market_data.get("previousClose", 100.0)
+                
+            risk_score = 50.0  # Default if missing
+            try:
+                # If risk string contains digits, extract it, or use scorecard
+                # Or simply pass 50.0
+                pass
+            except Exception:
+                pass
+                
+            if symbol and current_price:
+                self.portfolio_service.auto_invest(
+                    symbol=symbol,
+                    recommendation=result.action,
+                    confidence=result.confidence,
+                    current_price=float(current_price),
+                    risk_score=risk_score
+                )
+                
         return SkillResponse(status="success", output=decision_data)
 
 
@@ -258,18 +327,25 @@ class DiscussSkill(BaseSkill):
             llm_config=request.context.get_variable("llm_config", {})
         )
         
-        response = await self.discussion.discuss(disc_req)
+        discuss_stage = request.parameters.get("discuss_stage")
+        if discuss_stage:
+            # Execute specific stage
+            response = await self.discussion.discuss_stage(disc_req, discuss_stage, request.context)
+        else:
+            # Fallback to monolithic discuss
+            response = await self.discussion.discuss(disc_req)
         
         if response.status == "failed":
             return SkillResponse(status="failed", error=response.error)
             
         # Map opinions to frontend expected structure
-        frontend_discussion = {
+        frontend_discussion = request.context.results.get("discussion", {
             "Investment Debate": {},
             "Investment Plan": "",
             "Risk Debate": {},
-            "Risk Plan": ""
-        }
+            "Risk Plan": "",
+            "Strategy": "",
+        })
         
         for op in response.opinions:
             if op.name == "Bull Researcher":
@@ -280,8 +356,16 @@ class DiscussSkill(BaseSkill):
                 frontend_discussion["Investment Plan"] = op.opinion
             elif op.name == "Chief Risk Officer":
                 frontend_discussion["Risk Plan"] = op.opinion
-            elif "Risk Debator" in op.name:
+            elif op.name == "Chief Strategist":
+                frontend_discussion["Strategy"] = op.opinion
+            elif op.name in [
+                "Aggressive Risk Debator", "Conservative Risk Debator", "Neutral Risk Debator", "Risk Manager",
+                "Value Investing Sage", "Contrarian Strategist", "Macro Hedge Titan", "Soros Style Philosopher"
+            ]:
                 frontend_discussion["Risk Debate"][op.name] = op.opinion
+
+        if discuss_stage:
+            request.context.add_result(f"{discuss_stage}_ops", [op.model_dump() for op in response.opinions])
 
         # Persist the structured debate into the shared evidence graph (claims / rebuttals).
         for op in response.opinions:

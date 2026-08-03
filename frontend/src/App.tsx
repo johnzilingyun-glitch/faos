@@ -119,6 +119,22 @@ function App() {
   const [llmModel, setLlmModel] = useState(() => localStorage.getItem('faos_model') || 'gemini-3.5-flash');
   const [llmApiKey, setLlmApiKey] = useState(() => localStorage.getItem('faos_api_key') || '');
   const [llmLanguage, setLmLanguage] = useState(() => localStorage.getItem('faos_language') || 'zh');
+  const [analystStage2, setAnalystStage2] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('faos_analyst_stage2');
+      return saved ? JSON.parse(saved) : [
+        'value_investing_sage', 'growth_visionary', 'contrarian_strategist',
+        'macro_hedge_titan', 'soros-style_financial_philosopher',
+        'serenity_alpha_analyst', 'deep_research_specialist',
+      ];
+    } catch {
+      return [
+        'value_investing_sage', 'growth_visionary', 'contrarian_strategist',
+        'macro_hedge_titan', 'soros-style_financial_philosopher',
+        'serenity_alpha_analyst', 'deep_research_specialist',
+      ];
+    }
+  });
   const [events, setEvents] = useState<FAOSEvent[]>([]);
   const [taskStatus, setTaskStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
 
@@ -129,6 +145,7 @@ function App() {
   const [decision, setDecision] = useState<{ trader?: TraderStrategy, pm?: PMDecision } | null>(null);
   const [reportContent, setReportContent] = useState<string | null>(null);
   const [currentSymbol, setCurrentSymbol] = useState('');
+  const [agentStreams, setAgentStreams] = useState<Record<string, string>>({});
 
   // Post-Report Follow-up Chat State
   const [followUpInput, setFollowUpInput] = useState('');
@@ -385,6 +402,17 @@ function App() {
       ws.onmessage = (event) => {
         try {
           const faosEvent: FAOSEvent = JSON.parse(event.data);
+          
+          if (faosEvent.type === 'AgentStreamChunk') {
+            const { agent_name, chunk, node_id } = faosEvent.payload;
+            const streamKey = node_id ? `${node_id}_${agent_name}` : agent_name;
+            setAgentStreams(prev => ({
+              ...prev,
+              [streamKey]: (prev[streamKey] || '') + chunk
+            }));
+            return; // Skip adding to main events array to prevent UI freezing
+          }
+
           setEvents(prev => [...prev, faosEvent]);
 
           if (faosEvent.type === 'TaskSubmitted') setTaskStatus('running');
@@ -472,7 +500,8 @@ function App() {
     localStorage.setItem('faos_model', llmModel);
     localStorage.setItem('faos_api_key', llmApiKey);
     localStorage.setItem('faos_language', llmLanguage);
-    return { provider: llmProvider, model: llmModel, api_key: llmApiKey, language: llmLanguage };
+    localStorage.setItem('faos_analyst_stage2', JSON.stringify(analystStage2));
+    return { provider: llmProvider, model: llmModel, api_key: llmApiKey, language: llmLanguage, analyst_stage2: analystStage2 };
   };
 
   const transitionToAnalysis = (symbol?: string) => {
@@ -485,6 +514,7 @@ function App() {
     setReportContent(null);
     setFollowUpHistory([]);
     setFollowUpInput('');
+    setAgentStreams({});
     if (symbol) setCurrentSymbol(symbol);
     setTaskStatus('running');
 
@@ -694,6 +724,8 @@ function App() {
               llmLanguage={llmLanguage}
               setLmLanguage={setLmLanguage}
               modelOptions={MODEL_OPTIONS}
+              analystStage2={analystStage2}
+              setAnalystStage2={setAnalystStage2}
             />
           </div>
         </div>
@@ -1034,6 +1066,8 @@ function App() {
               llmLanguage={llmLanguage}
               setLmLanguage={setLmLanguage}
               modelOptions={MODEL_OPTIONS}
+              analystStage2={analystStage2}
+              setAnalystStage2={setAnalystStage2}
             />
             <div className={`status-indicator status-${taskStatus}`}>
               {taskStatus === 'running' && <Activity size={14} className="animate-spin" />}
@@ -1042,6 +1076,36 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* Live Agent Streams */}
+        {taskStatus === 'running' && Object.keys(agentStreams).length > 0 && (
+          <div className="stage-section" style={{ marginBottom: '2rem' }}>
+            <h2 className="stage-title">
+              <span className="badge" style={{ background: '#3b82f6', animation: 'pulse 2s infinite' }}>Live</span>
+              <Activity size={24} color="#3b82f6" />
+              Agent Generation Streams
+            </h2>
+            <div className="grid-2x2">
+              {Object.entries(agentStreams).map(([key, text]) => {
+                const parts = key.split('_');
+                const title = parts.length > 1 ? parts[1] : key;
+                return (
+                  <div key={key} className="impeccable-card" style={{ borderColor: '#3b82f6' }}>
+                    <div className="card-header">
+                      <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                        {title}
+                      </div>
+                    </div>
+                    <div className="card-body small markdown-body" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text + " █"}</ReactMarkdown>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Market Data Chart */}
         {marketData && (
@@ -1121,16 +1185,95 @@ function App() {
 
                 {discussion['Risk Debate'] && (
                   <div className="grid-3" style={{ marginTop: '1.5rem' }}>
-                    {Object.entries(discussion['Risk Debate']).map(([role, text]) => (
-                      <div key={role} className="impeccable-card">
-                        <div className="card-header">
-                          <div className="card-title">{role} Risk Assessment</div>
+                    {Object.entries(discussion['Risk Debate']).map(([role, text]) => {
+                      const raw = typeof text === 'string' ? text : JSON.stringify(text || '');
+                      // Try to extract a JSON object from the response (common for risk debators)
+                      const jsonStart = raw.indexOf('{');
+                      let parsed: Record<string, any> | null = null;
+                      if (jsonStart >= 0) {
+                        try {
+                          parsed = JSON.parse(raw.slice(jsonStart));
+                        } catch {}
+                      }
+                      return (
+                        <div key={role} className="impeccable-card">
+                          <div className="card-header">
+                            <div className="card-title">
+                              {role.replace(/_/g, ' ').replace(/\bRisk Debator\b/i, '')} 风险评估
+                            </div>
+                          </div>
+                          <div className="card-body" style={{ overflowX: 'auto' }}>
+                            {parsed ? (
+                              <div style={{ fontSize: '14px', lineHeight: 1.8 }}>
+                                {/* Core thesis */}
+                                {parsed.core_thesis && (
+                                  <div style={{
+                                    background: '#f8fafc', borderLeft: '4px solid #3b82f6',
+                                    padding: '14px 16px', borderRadius: '4px', marginBottom: '14px',
+                                    color: '#0f172a', fontWeight: 500,
+                                  }}>
+                                    <strong style={{ color: '#1d4ed8', fontSize: '14px' }}>核心定调：</strong>
+                                    {parsed.core_thesis}
+                                  </div>
+                                )}
+                                {/* Rating badge */}
+                                {parsed.rating && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <span style={{
+                                      display: 'inline-block', padding: '4px 14px', borderRadius: '12px',
+                                      fontSize: '13px', fontWeight: 700,
+                                      background: String(parsed.rating).includes('看空') || String(parsed.rating).includes('规避')
+                                        ? '#dc2626' : '#059669',
+                                      color: '#ffffff',
+                                    }}>
+                                      {parsed.rating}
+                                    </span>
+                                  </div>
+                                )}
+                                {/* Key metrics */}
+                                {parsed.key_metrics_extracted && Array.isArray(parsed.key_metrics_extracted) && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong style={{ color: '#1e293b', fontSize: '13px', fontWeight: 700 }}>关键指标</strong>
+                                    <ul style={{ margin: '6px 0 0', paddingLeft: '18px', color: '#0f172a' }}>
+                                      {parsed.key_metrics_extracted.map((m: string, i: number) => (
+                                        <li key={i} style={{ marginBottom: '4px' }}>{m}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {/* Risks */}
+                                {parsed.risks && Array.isArray(parsed.risks) && (
+                                  <div>
+                                    <strong style={{ color: '#b91c1c', fontSize: '13px', fontWeight: 700 }}>风险提示</strong>
+                                    <ul style={{ margin: '6px 0 0', paddingLeft: '18px', color: '#7f1d1d' }}>
+                                      {parsed.risks.map((r: string, i: number) => (
+                                        <li key={i} style={{ marginBottom: '5px', fontSize: '13px' }}>{r}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{raw}</ReactMarkdown>
+                            )}
+                          </div>
                         </div>
-                        <div className="card-body small markdown-body overflow-x-auto">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{typeof text === 'string' ? text : JSON.stringify(text || '')}</ReactMarkdown>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Chief Strategist section — shown below Risk Debate */}
+                {discussion['Strategy'] && (
+                  <div style={{ marginTop: '1.5rem' }} className="impeccable-card">
+                    <div className="card-header">
+                      <div className="card-title">🎯 首席策略师 最终战略</div>
+                    </div>
+                    <div className="card-body small markdown-body overflow-x-auto">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {typeof discussion['Strategy'] === 'string' ? discussion['Strategy'] : JSON.stringify(discussion['Strategy'] || '')}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 )}
               </>

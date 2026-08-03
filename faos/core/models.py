@@ -28,3 +28,9 @@ class PlanNode(BaseModel):
 class ExecutionPlan(BaseModel):
     task_id: str
     nodes: List[PlanNode] = Field(default_factory=list)
+
+class AgentStreamChunk(BaseModel):
+    task_id: str
+    agent_name: str
+    chunk: str
+    node_id: Optional[str] = None

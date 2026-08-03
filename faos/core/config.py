@@ -53,6 +53,15 @@ class Settings:
     task_context_ttl_seconds: float = field(default_factory=lambda: _float_env("FAOS_TASK_TTL", 600.0))
     max_active_tasks: int = field(default_factory=lambda: _int_env("FAOS_MAX_TASKS", 1000))
 
+    # Auto-persist completed analysis tasks into SQLite history.
+    # Set FAOS_AUTO_PERSIST=0 to disable (frontend manual save still works).
+    history_auto_persist: bool = field(
+        default_factory=lambda: os.environ.get("FAOS_AUTO_PERSIST", "1").lower() not in ("0", "false", "no")
+    )
+
+    # LLM tool-calling (function calling)
+    llm_max_tool_turns: int = field(default_factory=lambda: _int_env("FAOS_MAX_TOOL_TURNS", 5))
+
     @property
     def is_mock_env(self) -> bool:
         return self.env == "mock"

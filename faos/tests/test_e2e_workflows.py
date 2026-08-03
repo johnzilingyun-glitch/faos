@@ -22,6 +22,9 @@ def mock_settings() -> Settings:
         node_timeout_seconds=60.0,
         node_max_retries=1,
         task_context_ttl_seconds=600.0,
+        # Keep tests from writing into the real faos_history.db;
+        # auto-persist has its own dedicated test with a temp DB.
+        history_auto_persist=False,
     )
 
 
@@ -117,5 +120,59 @@ async def test_backtest_workflow_nodes_execute(mock_settings):
 
     await asyncio.wait_for(completed, timeout=30)
     assert "backtest_metrics" in runtime.contexts[task_id].results
+
+    await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_auto_persist_writes_history_on_completion(tmp_path):
+    """TaskCompleted should auto-save a history record (isolated temp DB)."""
+    from faos.services.history.storage import HistoryStorage
+    from faos.services.history.auto_persist import HistoryAutoPersistService
+
+    settings = Settings(
+        env="mock",
+        node_timeout_seconds=60.0,
+        node_max_retries=1,
+        task_context_ttl_seconds=600.0,
+        history_auto_persist=False,  # wire manually with the temp storage
+    )
+    runtime = TaskRuntime(settings=settings)
+    storage = HistoryStorage(db_path=str(tmp_path / "history_test.db"))
+    persister = HistoryAutoPersistService(
+        event_bus=runtime.event_bus,
+        contexts=runtime.contexts,
+        storage=storage,
+        active_tasks=runtime.active_tasks,
+    )
+    runtime.start()
+
+    loop = asyncio.get_running_loop()
+    saved = loop.create_future()
+
+    async def on_saved(event: Event):
+        if not saved.done():
+            saved.set_result(event.payload)
+
+    runtime.event_bus.subscribe("HistorySaved", on_saved)
+
+    task = await runtime.submit_task("分析 AAPL", {"llm_config": {"provider": "mock"}})
+    payload = await asyncio.wait_for(saved, timeout=90)
+
+    assert payload["task_id"] == task.id
+    assert payload["record_id"] == task.id
+
+    records = storage.list_records()
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["id"] == task.id
+    assert rec["symbol"] == payload["symbol"]
+    assert rec["reportContent"], "report content should be persisted"
+    assert rec["decision"] and rec["decision"]["action"] in ("BUY", "SELL", "HOLD")
+    assert rec["analysisReports"], "analysis reports should be persisted"
+    assert rec["chatHistory"] and rec["chatHistory"][0]["content"] == "分析 AAPL"
+
+    # Backtest-style contexts (no report/decision) must be skipped.
+    assert persister.build_record("no-output", ExecutionContext(task_id="no-output")) is None
 
     await runtime.stop()

@@ -198,10 +198,16 @@ class ExecutionEngine:
             logger.info(f"Completed execution of node {node.id} ({node.capability})")
 
         except Exception as e:
+            import traceback
+            err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
+            logger.error(
+                f"Node {node.id} ({node.capability}) FAILED: {type(e).__name__}: {err_msg}\n"
+                f"{traceback.format_exc()}"
+            )
             node_failed_event = Event(
                 type="NodeFailed",
                 source="ExecutionEngine",
-                payload={"task_id": task_id, "node_id": node.id, "error": str(e)}
+                payload={"task_id": task_id, "node_id": node.id, "error": err_msg, "error_type": type(e).__name__}
             )
             await self.event_bus.publish(node_failed_event)
             raise e
@@ -226,12 +232,13 @@ class ExecutionEngine:
                 raise
             except Exception as e:
                 last_error = e
+                err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
                 if attempt >= self.max_retries:
                     break
                 delay = min(2 ** attempt, 10)
                 logger.warning(
-                    f"Node {node.id} ({node.capability}) attempt {attempt + 1} failed: {e}. "
-                    f"Retrying in {delay}s..."
+                    f"Node {node.id} ({node.capability}) attempt {attempt + 1} failed: "
+                    f"{type(e).__name__}: {err_msg}. Retrying in {delay}s..."
                 )
                 await self.event_bus.publish(Event(
                     type="NodeRetrying",
@@ -246,6 +253,10 @@ class ExecutionEngine:
                     },
                 ))
                 await asyncio.sleep(delay)
+        logger.error(
+            f"Node {node.id} ({node.capability}) FAILED after {self.max_retries + 1} attempts: "
+            f"{type(last_error).__name__}: {str(last_error) if str(last_error) else '(no message)'}"
+        )
         raise last_error
 
     def _verify_no_cycles(self, nodes: Dict[str, PlanNode]):

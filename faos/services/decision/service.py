@@ -72,7 +72,8 @@ class DecisionService:
             task_id=request.task_id,
             context_data=trader_context,
             prompt=TRADER_PROMPT,
-            llm_config=request.llm_config
+            llm_config=request.llm_config,
+            enable_tools=True,
         )
         trader_resp = await self.reasoning.analyze_context(trader_req)
         trader_proposal = trader_resp.raw_response
@@ -90,11 +91,21 @@ class DecisionService:
             task_id=request.task_id,
             context_data=pm_context,
             prompt=PORTFOLIO_MANAGER_PROMPT,
-            llm_config=request.llm_config
+            llm_config=request.llm_config,
+            enable_tools=True,
         )
         pm, pm_raw = await self.reasoning.analyze_structured(
             pm_req, PMDecision, PM_DECISION_JSON_HINT
         )
+
+        # Phase 7: Apply Output Guardrail to PMDecision
+        if pm:
+            from faos.services.reasoning.output_guardrail import output_guardrail
+            guard_result = output_guardrail.check(pm)
+            if not guard_result.passed and guard_result.overridden_decision:
+                pm = guard_result.overridden_decision
+                logger.warning(f"PMDecision was blocked by Guardrail and overridden: {[i.rule for i in guard_result.issues]}")
+
         if pm is None:
             # Degrade gracefully: fall back to legacy text parsing of the raw output.
             pm = self._parse_pm_text(pm_raw)

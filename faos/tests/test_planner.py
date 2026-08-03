@@ -33,7 +33,7 @@ async def test_planner_pipeline_generates_plan():
                 task_id=request.task_id,
                 insights={},
                 confidence=1.0,
-                raw_response='{"status": "ready", "message": "ok", "workflow_id": "AnalyzeStockWorkflow", "parameters": {"symbol": "TSLA"}, "reasoning": "Test"}',
+                raw_response='{"intent_analysis": "Test intent", "plan_steps": ["Test step"], "status": "ready", "message": "ok", "workflow_id": "AnalyzeStockWorkflow", "parameters": {"symbol": "TSLA"}, "reasoning": "Test"}',
                 usage={}
             )
             
@@ -75,13 +75,13 @@ async def test_planner_pipeline_generates_plan():
     assert plan_event.payload["task_id"] == "task-planner-123"
     
     plan_data = plan_event.payload["plan"]
-    assert len(plan_data["nodes"]) == 7
+    assert len(plan_data["nodes"]) == 13
     
     # Check that TSLA symbol was extracted and injected
     node1 = next(n for n in plan_data["nodes"] if n["id"] == "node1")
     assert node1["parameters"].get("symbol") == "TSLA"
     
-    # Check node 3 dependencies
-    node3 = next(n for n in plan_data["nodes"] if n["id"] == "node3")
-    assert "node1" in node3["dependencies"]
-    assert "node2" in node3["dependencies"]
+    # Check node 3 dependencies (Stage 1 Analyze)
+    node3_s1 = next(n for n in plan_data["nodes"] if n["id"] == "node3_s1")
+    assert "node1" in node3_s1["dependencies"]
+    assert "node2" in node3_s1["dependencies"]

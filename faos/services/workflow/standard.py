@@ -58,6 +58,22 @@ def get_news_summary_workflow() -> WorkflowDefinition:
         ]
     )
 
+def get_sector_scan_workflow() -> WorkflowDefinition:
+    """
+    Workflow for sector scanning and finding undervalued stocks.
+    """
+    return WorkflowDefinition(
+        id="SectorScanWorkflow",
+        name="Sector Scanning Workflow",
+        description="Scan sectors, identify potential stock candidates, and perform comparative analysis to recommend the best picks.",
+        nodes=[
+            WorkflowNodeDef(id="node_scan", capability="cap.sector_scan"),
+            WorkflowNodeDef(id="node_batch_data", capability="cap.batch_fetch_data", dependencies=["node_scan"]),
+            WorkflowNodeDef(id="node_compare", capability="cap.compare_stocks", dependencies=["node_batch_data"]),
+            WorkflowNodeDef(id="node_report", capability="cap.report", dependencies=["node_compare"])
+        ]
+    )
+
 def get_backtest_workflow() -> WorkflowDefinition:
     """
     Standard Workflow for running historical backtests on a financial asset.

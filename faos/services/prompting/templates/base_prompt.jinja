@@ -253,6 +253,17 @@ LPR利率: 1年期={{ lpr.get('1y') }}% | 5年期={{ lpr.get('5y', 'N/A') }}% �
 Current Date: {{ current_date }}
 Target: {{ symbol }} ({{ name }})
 
+{% if user_params %}
+--- [USER INTENT] ---
+{% if user_params.get('investment_horizon') %}
+- 投资周期 (Investment Horizon): {{ user_params.get('investment_horizon') }}
+{% endif %}
+{% if user_params.get('strategic_focus') %}
+- 战略重点 (Strategic Focus): {{ user_params.get('strategic_focus') }}
+{% endif %}
+{% endif %}
+
+
 --- [API] COMPANY FACTUAL PROFILE (严禁编造以下事实) ---
 - 公司全称: {{ long_name }}
 - 股票代码: {{ full_code }}
